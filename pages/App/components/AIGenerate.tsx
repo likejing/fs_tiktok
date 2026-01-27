@@ -3,8 +3,8 @@ import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
 import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi-ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
-import { getFieldStringValue, findOrCreateField } from '../utils/fieldUtils';
-import { APIMART_VIDEO_GENERATE_API, APIMART_TASK_STATUS_API } from '../constants';
+import { getFieldStringValue, findOrCreateField } from '../../../lib/fieldUtils';
+import { APIMART_VIDEO_GENERATE_API, APIMART_TASK_STATUS_API } from '../../../lib/constants';
 
 const { Title, Text } = Typography;
 

@@ -3,7 +3,7 @@ import { bitable, ITableMeta, IViewMeta, FieldType } from "@lark-base-open/js-sd
 import { Button, Form, Toast, Typography, Space } from '@douyinfe/semi-ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
-import { getFieldStringValue } from '../utils/fieldUtils';
+import { getFieldStringValue } from '../../../lib/fieldUtils';
 
 const { Title, Text } = Typography;
 

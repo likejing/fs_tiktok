@@ -3,8 +3,8 @@ import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
 import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi-ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
-import { getFieldStringValue } from '../utils/fieldUtils';
-import { TIKTOK_REFRESH_TOKEN_API, TIKTOK_PUBLISH_STATUS_API } from '../constants';
+import { getFieldStringValue } from '../../../lib/fieldUtils';
+import { TIKTOK_REFRESH_TOKEN_API, TIKTOK_PUBLISH_STATUS_API } from '../../../lib/constants';
 
 const { Title, Text } = Typography;
 

@@ -4,8 +4,8 @@ import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
 import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi-ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
-import { findOrCreateField, convertValueByFieldType } from '../utils/fieldUtils';
-import { TIKHUB_FETCH_ONE_VIDEO_API } from '../constants';
+import { findOrCreateField, convertValueByFieldType } from '../../../lib/fieldUtils';
+import { TIKHUB_FETCH_ONE_VIDEO_API } from '../../../lib/constants';
 
 const { Title, Text } = Typography;
 

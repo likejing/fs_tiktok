@@ -12,7 +12,7 @@ const Home: NextPage = () => {
     <>
       <Head>
         <title>Base Script</title>
-        <link rel="icon" href="/favicon.ico" />
+        <link rel="icon" href="./favicon.ico" />
       </Head>
       <DynamicComponentWithNoSSR></DynamicComponentWithNoSSR>
     </>

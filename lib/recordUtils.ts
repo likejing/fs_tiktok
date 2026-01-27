@@ -47,7 +47,3 @@ export async function findRecordByOpenId(
     return null;
   }
 }
-
-
-
-

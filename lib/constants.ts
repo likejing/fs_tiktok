@@ -22,4 +22,3 @@ export const APIMART_TASK_STATUS_API = '/api/getApimartTaskStatus';
 
 // TikHub - 根据分享链接获取视频数据（通过本地API代理）
 export const TIKHUB_FETCH_ONE_VIDEO_API = '/api/fetchSocialVideo';
-

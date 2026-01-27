@@ -3,13 +3,13 @@ import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
 import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi-ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
-import { TIKTOK_VIDEO_LIST_API, TIKTOK_REFRESH_TOKEN_API } from '../constants';
+import { TIKTOK_VIDEO_LIST_API, TIKTOK_REFRESH_TOKEN_API } from '../../../lib/constants';
 import { 
   getFieldStringValue, 
   getFieldTypeByValue, 
   convertValueByFieldType,
   findOrCreateField 
-} from '../utils/fieldUtils';
+} from '../../../lib/fieldUtils';
 
 const { Title, Text } = Typography;
 

@@ -2,6 +2,7 @@
   "name": "Nextjs Template",
   "version": "0.1.0",
   "private": true,
+  "output": "dist",
   "scripts": {
     "dev": "next dev --port 3000 --hostname 0.0.0.0",
     "build": "next build",
