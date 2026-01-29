@@ -5,7 +5,7 @@ import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { findOrCreateField, convertValueByFieldType } from '../../../lib/fieldUtils';
-import { TIKHUB_FETCH_ONE_VIDEO_API } from '../../../lib/constants';
+import { TIKHUB_FETCH_ONE_VIDEO_API, PROXY_DOWNLOAD_API } from '../../../lib/constants';
 
 const { Title, Text } = Typography;
 
@@ -539,8 +539,8 @@ export default function SocialMediaFetch() {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 120000);
                 
-                // 通过本地 API 代理下载，避免前端直接请求抖音 CDN 被 403 拒绝
-                const proxyUrl = `/api/proxyDownload?url=${encodeURIComponent(videoUrl)}`;
+                // 通过 API 代理下载，避免前端直接请求抖音 CDN 被 403 拒绝
+                const proxyUrl = `${PROXY_DOWNLOAD_API}?url=${encodeURIComponent(videoUrl)}`;
                 const videoResponse = await fetch(proxyUrl, { signal: controller.signal });
                 clearTimeout(timeoutId);
                 

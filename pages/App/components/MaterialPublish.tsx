@@ -4,7 +4,7 @@ import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { getFieldStringValue } from '../../../lib/fieldUtils';
-import { TIKTOK_REFRESH_TOKEN_API, TIKTOK_PUBLISH_STATUS_API } from '../../../lib/constants';
+import { TIKTOK_REFRESH_TOKEN_API, TIKTOK_PUBLISH_STATUS_API, UPLOAD_TO_OSS_API, PUBLISH_VIDEO_API } from '../../../lib/constants';
 
 const { Title, Text } = Typography;
 
@@ -43,7 +43,7 @@ export default function MaterialPublish() {
   // 上传文件到阿里云OSS
   const uploadToOSS = async (fileUrl: string, fileName: string, folder?: string): Promise<string> => {
     try {
-      const response = await fetch('/api/uploadToOSS', {
+      const response = await fetch(UPLOAD_TO_OSS_API, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -787,7 +787,7 @@ export default function MaterialPublish() {
           // 调用发布API
           try {
             console.log(`正在调用发布API...`);
-            const publishResponse = await fetch('/api/publishVideo', {
+            const publishResponse = await fetch(PUBLISH_VIDEO_API, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',

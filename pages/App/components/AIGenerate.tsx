@@ -4,7 +4,7 @@ import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { getFieldStringValue, findOrCreateField } from '../../../lib/fieldUtils';
-import { APIMART_VIDEO_GENERATE_API, APIMART_TASK_STATUS_API } from '../../../lib/constants';
+import { APIMART_VIDEO_GENERATE_API, APIMART_TASK_STATUS_API, UPLOAD_TO_OSS_API } from '../../../lib/constants';
 
 const { Title, Text } = Typography;
 
@@ -40,7 +40,7 @@ export default function AIGenerate() {
   // 上传文件到阿里云 OSS
   const uploadToOSS = async (fileUrl: string, fileName: string, folder?: string): Promise<string> => {
     try {
-      const response = await fetch('/api/uploadToOSS', {
+      const response = await fetch(UPLOAD_TO_OSS_API, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
