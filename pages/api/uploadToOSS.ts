@@ -132,7 +132,7 @@ export default async function handler(
         'Date': date,
         'Authorization': authorization,
       },
-      body: buffer
+      body: new Uint8Array(buffer)
     })
 
     if (!uploadResponse.ok) {
