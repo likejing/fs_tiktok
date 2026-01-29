@@ -24,7 +24,11 @@ const VIDEO_FIELD_MAPPING: Record<string, string> = {
   'shares': '视频分享数',
   'full_video_watched_rate': '完播率',
   'average_time_watched': '平均观看时长',
+  'thumbnail_url': '视频封面',
 };
+
+// 需要作为附件处理的字段
+const ATTACHMENT_FIELDS = ['thumbnail_url'];
 
 // 高光分析算法配置
 const HIGHLIGHT_CONFIG = {
@@ -700,16 +704,54 @@ export default function VideoManagement() {
                         }
                       }
 
+                      // 判断是否为附件字段（如 thumbnail_url）
+                      const isAttachmentField = ATTACHMENT_FIELDS.includes(key);
+                      
                       // 查找或创建字段
                       let field = await findOrCreateField(
                         videoTable,
                         videoFieldList,
                         fieldName,
-                        getFieldTypeByValue(fieldValue)
+                        isAttachmentField ? FieldType.Attachment : getFieldTypeByValue(fieldValue)
                       );
 
                       if (!field) {
                         console.warn(`字段 ${key} -> ${fieldName} 不存在且创建失败，跳过`);
+                        continue;
+                      }
+
+                      // 处理附件字段
+                      if (isAttachmentField && typeof value === 'string' && value) {
+                        try {
+                          // 获取附件字段对象
+                          const attachmentField = await videoTable.getFieldById(field.id);
+                          const fieldType = await attachmentField.getType();
+                          
+                          if (fieldType === FieldType.Attachment) {
+                            // 使用 URL 创建附件
+                            const recordId = existingRecordId || '';
+                            if (recordId) {
+                              // 更新记录时，设置附件 URL
+                              // 飞书附件字段支持通过 URL 设置
+                              const attachmentUrls = [{ url: value }];
+                              await attachmentField.setValue(recordId, attachmentUrls as any);
+                              console.log(`✅ 附件字段 ${fieldName} 已设置图片 URL:`, value);
+                            } else {
+                              // 新增记录时，先保存 URL 到文本字段，后续处理
+                              // 因为新记录还没有 recordId
+                              console.log(`📝 新记录附件字段 ${fieldName} 将在创建后设置`);
+                              // 暂存 URL，稍后处理
+                              (video as any)._pendingAttachments = (video as any)._pendingAttachments || {};
+                              (video as any)._pendingAttachments[field.id] = value;
+                            }
+                          } else {
+                            // 如果不是附件类型，作为文本保存
+                            fields[field.id] = value;
+                          }
+                        } catch (attachError) {
+                          console.warn(`设置附件字段 ${fieldName} 失败，作为文本保存:`, attachError);
+                          fields[field.id] = value;
+                        }
                         continue;
                       }
 
@@ -730,9 +772,24 @@ export default function VideoManagement() {
                     await videoTable.setRecord(existingRecordId, { fields });
                     console.log(`✅ 更新视频 ${video.item_id}`);
                   } else {
-                    await videoTable.addRecord({ fields });
-                    console.log(`✅ 新增视频 ${video.item_id}`);
+                    // 新增记录
+                    const newRecordId = await videoTable.addRecord({ fields });
+                    console.log(`✅ 新增视频 ${video.item_id}, recordId: ${newRecordId}`);
                     totalVideos++;
+                    
+                    // 处理待设置的附件字段
+                    const pendingAttachments = (video as any)._pendingAttachments;
+                    if (pendingAttachments && newRecordId) {
+                      for (const [fieldId, url] of Object.entries(pendingAttachments)) {
+                        try {
+                          const attachmentField = await videoTable.getFieldById(fieldId);
+                          await attachmentField.setValue(newRecordId as string, [{ url }] as any);
+                          console.log(`✅ 新记录附件已设置:`, url);
+                        } catch (e) {
+                          console.warn(`设置新记录附件失败:`, e);
+                        }
+                      }
+                    }
                   }
                 } catch (e: any) {
                   console.error(`处理视频 ${video.item_id} 时出错:`, e);
