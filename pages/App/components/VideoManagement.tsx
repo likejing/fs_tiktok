@@ -3,7 +3,7 @@ import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
 import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi-ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
-import { TIKTOK_VIDEO_LIST_API, TIKTOK_REFRESH_TOKEN_API } from '../../../lib/constants';
+import { TIKTOK_VIDEO_LIST_API, TIKTOK_REFRESH_TOKEN_API, UPLOAD_TO_OSS_API } from '../../../lib/constants';
 import { 
   getFieldStringValue, 
   getFieldTypeByValue, 
@@ -27,8 +27,42 @@ const VIDEO_FIELD_MAPPING: Record<string, string> = {
   'thumbnail_url': '视频封面',
 };
 
-// 需要作为附件处理的字段
-const ATTACHMENT_FIELDS = ['thumbnail_url'];
+// 需要作为 URL 类型处理的字段（会创建 URL 类型字段，可点击预览）
+const URL_FIELDS = ['share_url', 'embed_url'];
+
+// 需要上传到附件字段的图片 URL 字段
+const ATTACHMENT_URL_FIELDS = ['thumbnail_url'];
+
+// 上传图片到 OSS 并返回 URL
+async function uploadImageToOSS(imageUrl: string, fileName: string): Promise<string | null> {
+  try {
+    console.log(`📤 开始上传封面图片到 OSS: ${fileName}`);
+    const response = await fetch(UPLOAD_TO_OSS_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fileUrl: imageUrl,
+        fileName: fileName,
+        folder: 'tiktok-thumbnails'
+      })
+    });
+
+    const result = await response.json();
+
+    if (result.code === 0 && result.data && result.data.url) {
+      console.log(`✅ 封面图片上传成功: ${result.data.url}`);
+      return result.data.url;
+    } else {
+      console.error(`❌ 封面图片上传失败:`, result);
+      return null;
+    }
+  } catch (e) {
+    console.error(`❌ 封面图片上传异常:`, e);
+    return null;
+  }
+}
 
 // 高光分析算法配置
 const HIGHLIGHT_CONFIG = {
@@ -681,6 +715,9 @@ export default function VideoManagement() {
                     console.warn(`计算高光帧/片段失败 (视频 ${video.item_id}):`, highlightError);
                   }
 
+                  // 用于存储需要后续处理的附件
+                  const pendingAttachments: Array<{ fieldId: string; ossUrl: string }> = [];
+
                   // 遍历视频数据中的每个字段
                   for (const [key, value] of Object.entries(video)) {
                     try {
@@ -704,15 +741,52 @@ export default function VideoManagement() {
                         }
                       }
 
-                      // 判断是否为附件字段（如 thumbnail_url）
-                      const isAttachmentField = ATTACHMENT_FIELDS.includes(key);
+                      // 判断是否为需要上传到附件的图片 URL 字段
+                      const isAttachmentUrlField = ATTACHMENT_URL_FIELDS.includes(key);
+                      // 判断是否为 URL 字段
+                      const isUrlField = URL_FIELDS.includes(key);
                       
-                      // 查找或创建字段
+                      // 处理附件字段（如 thumbnail_url）
+                      if (isAttachmentUrlField && typeof value === 'string' && value) {
+                        // 查找或创建附件字段（字段名带"附件"后缀）
+                        const attachmentFieldName = `${fieldName}附件`;
+                        let attachmentField = await findOrCreateField(
+                          videoTable,
+                          videoFieldList,
+                          attachmentFieldName,
+                          FieldType.Attachment
+                        );
+
+                        if (attachmentField) {
+                          // 上传图片到 OSS
+                          const ossUrl = await uploadImageToOSS(value, `thumbnail_${video.item_id}.jpg`);
+                          if (ossUrl) {
+                            pendingAttachments.push({ fieldId: attachmentField.id, ossUrl });
+                          }
+                        }
+
+                        // 同时保存原始 URL 到 URL 类型字段
+                        let urlField = await findOrCreateField(
+                          videoTable,
+                          videoFieldList,
+                          fieldName,
+                          FieldType.Url
+                        );
+                        if (urlField) {
+                          fields[urlField.id] = {
+                            link: value,
+                            text: '查看封面'
+                          };
+                        }
+                        continue;
+                      }
+                      
+                      // 查找或创建字段（URL 字段创建为 URL 类型，其他按值类型）
                       let field = await findOrCreateField(
                         videoTable,
                         videoFieldList,
                         fieldName,
-                        isAttachmentField ? FieldType.Attachment : getFieldTypeByValue(fieldValue)
+                        isUrlField ? FieldType.Url : getFieldTypeByValue(fieldValue)
                       );
 
                       if (!field) {
@@ -720,38 +794,14 @@ export default function VideoManagement() {
                         continue;
                       }
 
-                      // 处理附件字段
-                      if (isAttachmentField && typeof value === 'string' && value) {
-                        try {
-                          // 获取附件字段对象
-                          const attachmentField = await videoTable.getFieldById(field.id);
-                          const fieldType = await attachmentField.getType();
-                          
-                          if (fieldType === FieldType.Attachment) {
-                            // 使用 URL 创建附件
-                            const recordId = existingRecordId || '';
-                            if (recordId) {
-                              // 更新记录时，设置附件 URL
-                              // 飞书附件字段支持通过 URL 设置
-                              const attachmentUrls = [{ url: value }];
-                              await attachmentField.setValue(recordId, attachmentUrls as any);
-                              console.log(`✅ 附件字段 ${fieldName} 已设置图片 URL:`, value);
-                            } else {
-                              // 新增记录时，先保存 URL 到文本字段，后续处理
-                              // 因为新记录还没有 recordId
-                              console.log(`📝 新记录附件字段 ${fieldName} 将在创建后设置`);
-                              // 暂存 URL，稍后处理
-                              (video as any)._pendingAttachments = (video as any)._pendingAttachments || {};
-                              (video as any)._pendingAttachments[field.id] = value;
-                            }
-                          } else {
-                            // 如果不是附件类型，作为文本保存
-                            fields[field.id] = value;
-                          }
-                        } catch (attachError) {
-                          console.warn(`设置附件字段 ${fieldName} 失败，作为文本保存:`, attachError);
-                          fields[field.id] = value;
-                        }
+                      // 处理 URL 字段
+                      if (isUrlField && typeof value === 'string' && value) {
+                        // URL 字段格式：{ link: 'url', text: '显示文本' }
+                        fields[field.id] = {
+                          link: value,
+                          text: key === 'share_url' ? '分享链接' : '链接'
+                        };
+                        console.log(`✅ URL字段 ${fieldName} 已设置:`, value);
                         continue;
                       }
 
@@ -768,26 +818,46 @@ export default function VideoManagement() {
                   }
 
                   // 保存或更新记录
+                  let recordId: string;
                   if (existingRecordId) {
                     await videoTable.setRecord(existingRecordId, { fields });
+                    recordId = existingRecordId;
                     console.log(`✅ 更新视频 ${video.item_id}`);
                   } else {
-                    // 新增记录
                     const newRecordId = await videoTable.addRecord({ fields });
-                    console.log(`✅ 新增视频 ${video.item_id}, recordId: ${newRecordId}`);
+                    recordId = newRecordId as string;
+                    console.log(`✅ 新增视频 ${video.item_id}`);
                     totalVideos++;
-                    
-                    // 处理待设置的附件字段
-                    const pendingAttachments = (video as any)._pendingAttachments;
-                    if (pendingAttachments && newRecordId) {
-                      for (const [fieldId, url] of Object.entries(pendingAttachments)) {
-                        try {
-                          const attachmentField = await videoTable.getFieldById(fieldId);
-                          await attachmentField.setValue(newRecordId as string, [{ url }] as any);
-                          console.log(`✅ 新记录附件已设置:`, url);
-                        } catch (e) {
-                          console.warn(`设置新记录附件失败:`, e);
-                        }
+                  }
+
+                  // 处理附件字段（需要在记录创建/更新后设置）
+                  for (const { fieldId, ossUrl } of pendingAttachments) {
+                    try {
+                      const attachmentField = await videoTable.getFieldById(fieldId);
+                      // 使用 bitable SDK 的方式设置附件
+                      // 附件字段需要通过 URL 方式设置
+                      await (attachmentField as any).setValue(recordId, [{
+                        name: `thumbnail_${video.item_id}.jpg`,
+                        type: 'image/jpeg',
+                        url: ossUrl
+                      }]);
+                      console.log(`✅ 附件字段已设置:`, ossUrl);
+                    } catch (attachError) {
+                      console.warn(`设置附件字段失败:`, attachError);
+                      // 如果设置附件失败，尝试使用 setRecord 方式
+                      try {
+                        await videoTable.setRecord(recordId, {
+                          fields: {
+                            [fieldId]: [{
+                              name: `thumbnail_${video.item_id}.jpg`,
+                              type: 'image/jpeg', 
+                              url: ossUrl
+                            }]
+                          }
+                        });
+                        console.log(`✅ 通过 setRecord 设置附件成功`);
+                      } catch (e2) {
+                        console.error(`setRecord 设置附件也失败:`, e2);
                       }
                     }
                   }
