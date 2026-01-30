@@ -1,10 +1,2 @@
-.main {
-  padding: 1.5rem 1rem 1rem;
-}
-.h4 {
-  font-size: calc(1.275rem + 0.3vw);
-}
-.code {
-  color: #d63384;
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
-}
+/* 已迁移至内联样式，遵循 Base 开放设计规范 */
+/* 保留文件以兼容可能的引用 */

@@ -452,10 +452,9 @@ export default function DebugManagement() {
           </Form.Select>
 
           <Button 
-            theme='solid' 
-            type="primary"
             htmlType='submit' 
             loading={loading}
+            className="btn-primary"
             style={{ width: '100%' }}
           >
             获取记录数据

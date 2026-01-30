@@ -14,3 +14,157 @@ body {
 nextjs-portal {
   display: none;
 }
+
+/* ============================================
+   按钮样式 - 遵循 Base 开放设计规范
+   按钮圆角：4px
+   按钮间距：12px
+   支持 Normal、Hover、Press、Disable 状态
+   注意：避免使用 transform 以防止布局偏移
+============================================ */
+
+/* 主要按钮 - 蓝底白字 */
+.btn-primary {
+  background-color: #3370ff !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 4px !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: #2860e1 !important;
+  box-shadow: 0 2px 8px rgba(51, 112, 255, 0.25);
+}
+.btn-primary:active:not(:disabled) {
+  background-color: #1f4fc9 !important;
+  box-shadow: none;
+}
+.btn-primary:disabled {
+  background-color: #94bfff !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+  cursor: not-allowed;
+}
+
+/* 次要按钮 - 浅蓝底深蓝字 */
+.btn-secondary {
+  background-color: #e8f3ff !important;
+  color: #3370ff !important;
+  border: 1px solid #bedaff !important;
+  border-radius: 4px !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease !important;
+}
+.btn-secondary:hover:not(:disabled) {
+  background-color: #d4e8ff !important;
+  border-color: #9dc5ff !important;
+}
+.btn-secondary:active:not(:disabled) {
+  background-color: #bedaff !important;
+}
+.btn-secondary:disabled {
+  background-color: #f5f8ff !important;
+  color: #94bfff !important;
+  border-color: #d4e8ff !important;
+  cursor: not-allowed;
+}
+
+/* 第三级按钮 - 灰底深字 */
+.btn-tertiary {
+  background-color: #f5f6f7 !important;
+  color: #1f2329 !important;
+  border: 1px solid #e5e6e8 !important;
+  border-radius: 4px !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease !important;
+}
+.btn-tertiary:hover:not(:disabled) {
+  background-color: #ebebed !important;
+  border-color: #d9dadc !important;
+}
+.btn-tertiary:active:not(:disabled) {
+  background-color: #dfe0e2 !important;
+}
+.btn-tertiary:disabled {
+  background-color: #fafafa !important;
+  color: #bbbfc4 !important;
+  cursor: not-allowed;
+}
+
+/* 危险按钮 - 红底白字 */
+.btn-danger {
+  background-color: #f54a45 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 4px !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+.btn-danger:hover:not(:disabled) {
+  background-color: #d9363e !important;
+  box-shadow: 0 2px 8px rgba(245, 74, 69, 0.25);
+}
+.btn-danger:active:not(:disabled) {
+  background-color: #bf2a32 !important;
+  box-shadow: none;
+}
+.btn-danger:disabled {
+  background-color: #fba5a3 !important;
+  cursor: not-allowed;
+}
+
+/* 成功按钮 - 绿底白字 */
+.btn-success {
+  background-color: #34c759 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 4px !important;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+.btn-success:hover:not(:disabled) {
+  background-color: #2db24d !important;
+  box-shadow: 0 2px 8px rgba(52, 199, 89, 0.25);
+}
+.btn-success:active:not(:disabled) {
+  background-color: #269d44 !important;
+  box-shadow: none;
+}
+
+/* 文字按钮 - 无背景 */
+.btn-text {
+  background-color: transparent !important;
+  color: #3370ff !important;
+  border: none !important;
+  border-radius: 4px !important;
+  transition: background-color 0.2s ease !important;
+}
+.btn-text:hover:not(:disabled) {
+  background-color: rgba(51, 112, 255, 0.08) !important;
+}
+.btn-text:active:not(:disabled) {
+  background-color: rgba(51, 112, 255, 0.15) !important;
+}
+
+/* 暗色模式适配 */
+@media (prefers-color-scheme: dark) {
+  .btn-primary {
+    background-color: #4e83fd !important;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: #6a97fd !important;
+  }
+  
+  .btn-secondary {
+    background-color: rgba(78, 131, 253, 0.15) !important;
+    color: #6a97fd !important;
+    border-color: rgba(78, 131, 253, 0.3) !important;
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: rgba(78, 131, 253, 0.25) !important;
+  }
+  
+  .btn-tertiary {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    color: #e8e9eb !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+  }
+  .btn-tertiary:hover:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.12) !important;
+  }
+}

@@ -1,6 +1,7 @@
 'use client'
 import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
-import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi-ui';
+import { Button, Form, Toast, Typography, Space, Progress, Card, Banner, Divider } from '@douyinfe/semi-ui';
+import { IconStar, IconRefresh } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { getFieldStringValue, findOrCreateField } from '../../../lib/fieldUtils';
@@ -828,118 +829,141 @@ export default function AIGenerate() {
     });
   }, []);
 
+  // 样式常量 - 遵循 Base 开放设计规范
+  const styles = {
+    container: { padding: '0 4px' },
+    header: { marginBottom: 16 },
+    card: { marginBottom: 16, borderRadius: 8 },
+    cardBody: { padding: '16px 20px' },
+    sectionTitle: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 },
+    infoCard: { backgroundColor: 'var(--semi-color-fill-0)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 },
+    fieldList: { display: 'flex', flexWrap: 'wrap' as const, gap: 6, marginTop: 8 },
+    fieldTag: { padding: '2px 8px', borderRadius: 4, fontSize: 12, backgroundColor: 'var(--semi-color-primary-light-default)', color: 'var(--semi-color-primary)' },
+    fieldTagWarning: { padding: '2px 8px', borderRadius: 4, fontSize: 12, backgroundColor: 'var(--semi-color-warning-light-default)', color: 'var(--semi-color-warning)' },
+    fieldTagSuccess: { padding: '2px 8px', borderRadius: 4, fontSize: 12, backgroundColor: 'var(--semi-color-success-light-default)', color: 'var(--semi-color-success)' },
+    buttonGroup: { display: 'flex', gap: 12, marginTop: 16 },
+    progressContainer: { marginTop: 16, marginBottom: 8 },
+  };
+
   return (
-    <div>
-      <Title heading={4} style={{ marginBottom: '1rem' }}>
-        TikTok AI 视频生成
-      </Title>
-      <Text type="tertiary" style={{ marginBottom: '1rem', display: 'block' }}>
-        使用 Sora2 AI 模型生成高质量视频内容，支持文本提示词、参考图片、自定义时长和横竖屏比例，为您的 TikTok 内容创作提供强大的 AI 支持。
-      </Text>
-      
-      <Form
-        getFormApi={(api) => formApi.current = api}
-        style={{ width: '100%' }}
-      >
-        <Form.Slot label="使用说明">
-          <div style={{ marginBottom: '1rem', fontSize: '14px', color: '#666', lineHeight: '1.6' }}>
-            <div><strong>功能说明：</strong> 基于 Sora2 AI 模型，根据文本提示词和参考图片自动生成视频内容</div>
-            
-            <div style={{ marginTop: '0.5rem' }}>
-              <strong>📋 必填字段：</strong>
-              <div style={{ marginLeft: '1rem', marginTop: '0.25rem', color: '#ff4d4f' }}>
-                <div>• <strong>文本提示词</strong> - 视频生成的文本描述（支持 @角色名 引用已创建的角色）</div>
-              </div>
-            </div>
+    <div style={styles.container}>
+      {/* 页面标题 */}
+      <div style={styles.header}>
+        <Title heading={5} style={{ marginBottom: 4, color: 'var(--semi-color-text-0)' }}>
+          AI 视频生成
+        </Title>
+        <Text type="tertiary" size="small">
+          使用 Sora2 AI 模型生成高质量视频内容
+        </Text>
+      </div>
 
-            <div style={{ marginTop: '0.5rem' }}>
-              <strong>📝 可选字段：</strong>
-              <div style={{ marginLeft: '1rem', marginTop: '0.25rem' }}>
-                <div>• <strong>参考图</strong>（附件）- 参考图片，用于图生视频</div>
-                <div>• <strong>横竖屏</strong> - 视频比例：横屏(16:9) 或 竖屏(9:16)</div>
-                <div>• <strong>生成时长</strong> - 视频时长：10秒/15秒（sora-2）或 25秒（sora-2-pro）</div>
-                <div>• <strong>视频风格</strong> - 感恩节/漫画/新闻/自拍/复古/动漫</div>
-                <div>• <strong>添加水印</strong> - 是否添加 Sora 官方水印（是/否）</div>
-                <div>• <strong>生成缩略图</strong> - 是否生成视频缩略图（是/否）</div>
-                <div>• <strong>隐私模式</strong> - 是否开启隐私模式（是/否）</div>
-                <div>• <strong>故事板</strong> - 是否使用故事板模式（是/否）</div>
-                <div>• <strong>角色视频URL</strong> - 参考视频中的角色 URL</div>
-                <div>• <strong>角色时间戳</strong> - 角色出现的时间范围（如：1,3）</div>
-                <div>• <strong>是否生成Sora</strong> - 控制该记录是否参与生成（是/否）</div>
-              </div>
-            </div>
+      {/* 生成配置卡片 */}
+      <Card style={styles.card} bodyStyle={styles.cardBody} bordered={false} shadows='hover'>
+        <div style={styles.sectionTitle}>
+          <IconStar style={{ color: 'var(--semi-color-primary)' }} />
+          <Text strong style={{ color: 'var(--semi-color-text-0)' }}>生成配置</Text>
+        </div>
 
-            <div style={{ marginTop: '0.5rem' }}>
-              <strong>📤 输出字段（自动创建）：</strong>
-              <div style={{ marginLeft: '1rem', marginTop: '0.25rem' }}>
-                <div>• <strong>Sora2视频</strong>（附件）- 生成的视频文件</div>
-                <div>• <strong>任务ID</strong> - 生成任务的唯一标识</div>
-                <div>• <strong>生成状态</strong> - 任务状态：submitted/processing/completed/failed</div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: '0.5rem', color: '#1890ff', fontWeight: '500' }}>
-              💡 提示：生成任务提交后会返回任务ID，视频生成需要一定时间。请定期点击&ldquo;更新任务状态&rdquo;查询进度，完成后会自动下载并保存视频。
-            </div>
-            <div style={{ marginTop: '0.5rem', color: '#fa8c16', fontWeight: '500' }}>
-              ⚠️ 注意：生成的视频链接有效期为24小时，请及时更新状态保存视频。
-            </div>
-          </div>
-        </Form.Slot>
-        
-        <Space vertical spacing="loose" style={{ width: '100%' }}>
+        <Form
+          getFormApi={(api) => formApi.current = api}
+          labelPosition='top'
+        >
           <Form.Select 
             field='table' 
-            label='选择数据表' 
-            placeholder="请选择数据表" 
+            label='数据表'
+            placeholder="选择包含提示词的数据表" 
             style={{ width: '100%' }}
             rules={[{ required: true, message: '请选择数据表' }]}
-          >
-            {
-              Array.isArray(tableMetaList) && tableMetaList.map(({ name, id }) => {
-                return (
-                  <Form.Select.Option key={id} value={id}>
-                    {name}
-                  </Form.Select.Option>
-                );
-              })
-            }
-          </Form.Select>
+            optionList={tableMetaList?.map(({ name, id }) => ({ label: name, value: id }))}
+          />
 
-          <Button 
-            theme='solid' 
-            type="primary"
-            onClick={() => {
-              const values = formApi.current?.getValues() || {};
-              handleGenerateSora2({ table: values.table });
-            }}
-            loading={loading}
-            style={{ width: '100%' }}
-          >
-            生成Sora2视频
-          </Button>
-
-          <Button
-            theme='solid'
-            type="secondary"
-            onClick={() => {
-              const values = formApi.current?.getValues() || {};
-              handleUpdateTaskStatus({ table: values.table });
-            }}
-            loading={loading}
-            style={{ width: '100%' }}
-          >
-            更新任务状态
-          </Button>
-
+          {/* 进度显示 */}
           {loading && (
-            <div style={{ marginTop: '1rem' }}>
-              <Progress percent={progress} type="line" size="small" />
-              <Text style={{ marginTop: '0.5rem', display: 'block' }}>{status}</Text>
+            <div style={styles.progressContainer}>
+              <Progress 
+                percent={progress} 
+                showInfo 
+                style={{ marginBottom: 8 }}
+                stroke='var(--semi-color-primary)'
+              />
+              <Text type="tertiary" size="small">{status}</Text>
             </div>
           )}
-        </Space>
-      </Form>
+
+          {/* 操作按钮 */}
+          <div style={styles.buttonGroup}>
+            <Button 
+              onClick={() => {
+                const values = formApi.current?.getValues() || {};
+                handleGenerateSora2({ table: values.table });
+              }}
+              loading={loading}
+              icon={<IconStar />}
+              className="btn-primary"
+              style={{ flex: 1 }}
+            >
+              生成视频
+            </Button>
+            <Button
+              onClick={() => {
+                const values = formApi.current?.getValues() || {};
+                handleUpdateTaskStatus({ table: values.table });
+              }}
+              loading={loading}
+              icon={<IconRefresh />}
+              className="btn-secondary"
+              style={{ flex: 1 }}
+            >
+              更新状态
+            </Button>
+          </div>
+        </Form>
+      </Card>
+
+      {/* 字段说明卡片 */}
+      <Card style={styles.card} bodyStyle={styles.cardBody} bordered={false} shadows='hover'>
+        <Text strong size="small" style={{ color: 'var(--semi-color-text-0)', display: 'block', marginBottom: 12 }}>
+          字段说明
+        </Text>
+
+        {/* 必填字段 */}
+        <div style={styles.infoCard}>
+          <Text size="small" style={{ color: 'var(--semi-color-text-1)' }}>必填字段</Text>
+          <div style={styles.fieldList}>
+            <span style={styles.fieldTagWarning}>文本提示词</span>
+          </div>
+        </div>
+
+        {/* 可选字段 */}
+        <div style={styles.infoCard}>
+          <Text size="small" style={{ color: 'var(--semi-color-text-1)' }}>可选字段</Text>
+          <div style={styles.fieldList}>
+            <span style={styles.fieldTag}>参考图</span>
+            <span style={styles.fieldTag}>横竖屏</span>
+            <span style={styles.fieldTag}>生成时长</span>
+            <span style={styles.fieldTag}>视频风格</span>
+            <span style={styles.fieldTag}>添加水印</span>
+            <span style={styles.fieldTag}>是否生成Sora</span>
+          </div>
+        </div>
+
+        {/* 输出字段 */}
+        <div style={styles.infoCard}>
+          <Text size="small" style={{ color: 'var(--semi-color-text-1)' }}>输出字段（自动创建）</Text>
+          <div style={styles.fieldList}>
+            <span style={styles.fieldTagSuccess}>Sora2视频</span>
+            <span style={styles.fieldTagSuccess}>任务ID</span>
+            <span style={styles.fieldTagSuccess}>生成状态</span>
+          </div>
+        </div>
+      </Card>
+
+      {/* 提示信息 */}
+      <Banner 
+        type="warning"
+        description="视频链接有效期24小时，请及时点击更新状态保存视频。"
+        style={{ borderRadius: 8 }}
+      />
     </div>
   );
 }

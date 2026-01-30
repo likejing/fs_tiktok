@@ -1,6 +1,7 @@
 'use client'
 import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
-import { Button, Form, Input, Toast, Typography, Space } from '@douyinfe/semi-ui';
+import { Button, Form, Input, Toast, Typography, Space, Card, Divider, Banner } from '@douyinfe/semi-ui';
+import { IconUserAdd, IconRefresh, IconCopy, IconExternalOpen } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { TIKTOK_AUTH_URL, TIKTOK_USER_INFO_API } from '../../../lib/constants';
@@ -450,144 +451,145 @@ export default function AccountManagement() {
       });
   }, []);
 
-  return (
-    <div>
-      <Title heading={4} style={{ marginBottom: '1rem' }}>
-        TikTok 账号管理
-      </Title>
-      <Text type="tertiary" style={{ marginBottom: '1rem', display: 'block' }}>
-        管理您的 TikTok 账号信息，包括授权绑定、账号信息同步、粉丝数据更新等功能。
-      </Text>
-      
-      <Form 
-        labelPosition='top' 
-        onSubmit={handleSaveData} 
-        getFormApi={(baseFormApi: BaseFormApi) => formApi.current = baseFormApi}
-        style={{ marginTop: '1rem' }}
-      >
-        <Form.Slot label="新增账号 - 操作步骤">
-          <div style={{ marginBottom: '1rem', fontSize: '14px', color: '#666', lineHeight: '1.6' }}>
-            <div><strong>步骤 1：</strong> 点击下方&ldquo;复制链接&rdquo;按钮，复制 TikTok 授权链接</div>
-            <div><strong>步骤 2：</strong> 在浏览器中打开链接，使用 TikTok 账号完成授权</div>
-            <div><strong>步骤 3：</strong> 授权完成后，将返回的 JSON 数据粘贴到下方输入框</div>
-            <div><strong>步骤 4：</strong> 选择要保存账号的数据表（账号列表）</div>
-            <div><strong>步骤 5：</strong> 点击&ldquo;新增账号&rdquo;按钮完成保存</div>
-            <div style={{ marginTop: '0.5rem', color: '#1890ff', fontWeight: '500' }}>
-              💡 提示：系统会自动解析 JSON 数据并保存账号信息。如果账号已存在（根据 open_id 判断），将自动更新；不存在则新增。字段不存在时会自动创建。
-            </div>
-          </div>
-        </Form.Slot>
+  // 样式常量 - 遵循 Base 开放设计规范
+  const styles = {
+    container: { padding: '0 4px' },
+    header: { marginBottom: 16 },
+    card: { marginBottom: 16, borderRadius: 8 },
+    cardBody: { padding: '16px 20px' },
+    sectionTitle: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 },
+    buttonGroup: { display: 'flex', gap: 12, marginTop: 16 },
+    infoCard: { backgroundColor: 'var(--semi-color-fill-0)', borderRadius: 8, padding: '12px 16px', marginBottom: 12 },
+    stepItem: { marginBottom: 4, color: 'var(--semi-color-text-2)', fontSize: 13, lineHeight: '20px' },
+  };
 
-        <Space vertical spacing="loose" style={{ width: '100%' }}>
-          <div>
-            <div style={{ marginBottom: '0.5rem', fontSize: '14px', fontWeight: '500' }}>
-              TikTok 授权链接
-            </div>
+  return (
+    <div style={styles.container}>
+      {/* 页面标题 */}
+      <div style={styles.header}>
+        <Title heading={5} style={{ marginBottom: 4, color: 'var(--semi-color-text-0)' }}>
+          账号管理
+        </Title>
+        <Text type="tertiary" size="small">
+          授权绑定 TikTok 账号，同步账号数据
+        </Text>
+      </div>
+
+      {/* 新增账号卡片 */}
+      <Card style={styles.card} bodyStyle={styles.cardBody} bordered={false} shadows='hover'>
+        <div style={styles.sectionTitle}>
+          <IconUserAdd style={{ color: 'var(--semi-color-primary)' }} />
+          <Text strong style={{ color: 'var(--semi-color-text-0)' }}>新增账号</Text>
+        </div>
+
+        {/* 操作步骤说明 */}
+        <div style={styles.infoCard}>
+          <Text size="small" style={{ color: 'var(--semi-color-text-1)', fontWeight: 500 }}>操作步骤</Text>
+          <div style={{ marginTop: 8 }}>
+            <div style={styles.stepItem}>1. 复制授权链接，在浏览器中打开</div>
+            <div style={styles.stepItem}>2. 使用 TikTok 账号完成授权</div>
+            <div style={styles.stepItem}>3. 将返回的 JSON 数据粘贴到下方</div>
+            <div style={styles.stepItem}>4. 选择账号列表，点击新增</div>
+          </div>
+        </div>
+
+        <Form 
+          labelPosition='top' 
+          onSubmit={handleSaveData} 
+          getFormApi={(baseFormApi: BaseFormApi) => formApi.current = baseFormApi}
+        >
+          {/* 授权链接 */}
+          <div style={{ marginBottom: 16 }}>
+            <Text size="small" style={{ color: 'var(--semi-color-text-1)', marginBottom: 8, display: 'block' }}>
+              授权链接
+            </Text>
             <Input
               id="tiktok-auth-link-input"
               value={TIKTOK_AUTH_URL}
               readOnly
-              style={{ width: '100%', marginBottom: '0.5rem' }}
-              onFocus={(e) => {
-                e.target.select();
-              }}
+              style={{ width: '100%', marginBottom: 8 }}
+              onFocus={(e) => e.target.select()}
             />
-            <Space style={{ width: '100%' }}>
+            <div style={styles.buttonGroup}>
               <Button 
-                theme='solid' 
-                type="primary"
+                icon={<IconCopy />}
                 onClick={handleCopyAuthLink}
+                className="btn-primary"
                 style={{ flex: 1 }}
               >
                 复制链接
               </Button>
               <Button 
-                theme='borderless' 
-                type="tertiary"
+                icon={<IconExternalOpen />}
                 onClick={handleOpenAuthLink}
+                className="btn-secondary"
                 style={{ flex: 1 }}
               >
-                在新窗口打开
+                打开链接
               </Button>
-            </Space>
+            </div>
           </div>
 
           <Form.Select 
             field='table' 
-            label='选择账号列表' 
-            placeholder="请选择账号列表" 
+            label='账号列表'
+            placeholder="选择保存账号的数据表" 
             style={{ width: '100%' }}
             rules={[{ required: true, message: '请选择账号列表' }]}
-          >
-            {
-              Array.isArray(tableMetaList) && tableMetaList.map(({ name, id }) => {
-                return (
-                  <Form.Select.Option key={id} value={id}>
-                    {name}
-                  </Form.Select.Option>
-                );
-              })
-            }
-          </Form.Select>
+            optionList={tableMetaList?.map(({ name, id }) => ({ label: name, value: id }))}
+          />
 
           <Form.TextArea
             field='jsonData'
-            label='授权返回的JSON数据'
-            placeholder='请将授权完成后返回的JSON数据粘贴到这里...'
-            rows={8}
+            label='授权返回数据'
+            placeholder='粘贴授权完成后返回的 JSON 数据...'
+            rows={6}
             style={{ width: '100%' }}
             rules={[{ required: true, message: '请输入JSON数据' }]}
           />
 
           <Button 
-            theme='solid' 
-            type="primary"
             htmlType='submit' 
             loading={loading}
-            style={{ width: '100%' }}
+            icon={<IconUserAdd />}
+            className="btn-primary"
+            style={{ width: '100%', marginTop: 8 }}
           >
             新增账号
           </Button>
+        </Form>
+      </Card>
 
-          <div style={{ 
-            margin: '1rem 0', 
-            borderTop: '1px solid #e8e8e8', 
-            paddingTop: '1rem' 
-          }}>
-            <Title heading={5} style={{ marginBottom: '0.5rem', fontSize: '16px' }}>
-              批量更新账号信息
-            </Title>
-            <div style={{ 
-              marginBottom: '1rem', 
-              fontSize: '14px', 
-              color: '#666', 
-              lineHeight: '1.6' 
-            }}>
-              <div><strong>功能说明：</strong> 批量同步账号列表中的所有 TikTok 账号信息，包括粉丝数、获赞数、视频数等数据</div>
-              <div style={{ marginTop: '0.5rem' }}>
-                <strong>操作步骤：</strong>
-                <div style={{ marginLeft: '1rem', marginTop: '0.25rem' }}>
-                  <div>1. 确保账号列表已选择（当前选中的数据表）</div>
-                  <div>2. 点击下方&ldquo;更新所有账号信息&rdquo;按钮</div>
-                  <div>3. 系统将自动遍历所有账号记录并更新信息</div>
-                </div>
-              </div>
-              <div style={{ marginTop: '0.5rem', color: '#fa8c16', fontWeight: '500' }}>
-                ⚠️ 注意：此操作会调用 TikTok API 更新所有账号，可能需要较长时间，请耐心等待
-              </div>
-            </div>
-            <Button 
-              theme='solid' 
-              type="secondary"
-              onClick={handleUpdateAccountInfo}
-              loading={updating}
-              style={{ width: '100%' }}
-            >
-              更新所有账号信息
-            </Button>
-          </div>
-        </Space>
-      </Form>
+      {/* 更新账号卡片 */}
+      <Card style={styles.card} bodyStyle={styles.cardBody} bordered={false} shadows='hover'>
+        <div style={styles.sectionTitle}>
+          <IconRefresh style={{ color: 'var(--semi-color-primary)' }} />
+          <Text strong style={{ color: 'var(--semi-color-text-0)' }}>批量更新</Text>
+        </div>
+
+        <div style={styles.infoCard}>
+          <Text type="tertiary" size="small">
+            同步账号列表中所有 TikTok 账号的最新数据，包括粉丝数、获赞数、视频数等
+          </Text>
+        </div>
+
+        <Button 
+          onClick={handleUpdateAccountInfo}
+          loading={updating}
+          icon={<IconRefresh />}
+          className="btn-tertiary"
+          style={{ width: '100%' }}
+        >
+          更新所有账号
+        </Button>
+      </Card>
+
+      {/* 提示信息 */}
+      <Banner 
+        type="info"
+        description="系统会自动解析 JSON 并保存账号。已存在的账号会自动更新，字段会自动创建。"
+        style={{ borderRadius: 8 }}
+      />
     </div>
   );
 }

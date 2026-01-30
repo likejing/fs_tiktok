@@ -1,6 +1,7 @@
 'use client'
 import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
-import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi-ui';
+import { Button, Form, Toast, Typography, Space, Progress, Card, Banner } from '@douyinfe/semi-ui';
+import { IconSend, IconRefresh2 } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { getFieldStringValue } from '../../../lib/fieldUtils';
@@ -1254,107 +1255,116 @@ export default function MaterialPublish() {
     });
   }, []);
 
-  return (
-    <div>
-      <Title heading={4} style={{ marginBottom: '1rem' }}>
-        TikTok 素材发布管理
-      </Title>
-      <Text type="tertiary" style={{ marginBottom: '1rem', display: 'block' }}>
-        自动化发布 TikTok 视频素材，支持定时发布、批量发布、自动 Token 刷新等功能，让您的视频内容管理更高效。
-      </Text>
-      
-      <Form 
-        labelPosition='top' 
-        onSubmit={handleAutoPublish} 
-        getFormApi={(baseFormApi: BaseFormApi) => formApi.current = baseFormApi}
-        style={{ marginTop: '1rem' }}
-      >
-        <Form.Slot label="使用说明">
-          <div style={{ marginBottom: '1rem', fontSize: '14px', color: '#666', lineHeight: '1.6' }}>
-            <div><strong>功能说明：</strong> 自动发布素材库中符合条件的视频到 TikTok，支持定时发布、自动上传视频到 OSS、自动刷新 Token 等</div>
-            <div style={{ marginTop: '0.5rem' }}>
-              <strong>操作步骤：</strong>
-              <div style={{ marginLeft: '1rem', marginTop: '0.25rem' }}>
-                <div>1. 选择素材库表（包含发布状态、发布时间、发布账号、视频附件等字段）</div>
-                <div>2. 选择账号列表（包含 access_token 和 open_id 字段）</div>
-                <div>3. 点击&ldquo;自动发布&rdquo;按钮开始发布流程</div>
-                <div>4. 系统会自动查询符合条件的素材并发布到 TikTok</div>
-              </div>
-            </div>
-            <div style={{ marginTop: '0.5rem', color: '#1890ff', fontWeight: '500' }}>
-              💡 发布条件：发布状态 = &ldquo;等待发布&rdquo; 且 发布时间 ≤ 当前时间。系统会自动检查 Token 是否过期，过期前会自动刷新。
-            </div>
-            <div style={{ marginTop: '0.5rem', color: '#fa8c16', fontWeight: '500' }}>
-              ⚠️ 注意：发布操作会调用 TikTok API，请确保素材已准备好视频附件和标题等信息
-            </div>
-          </div>
-        </Form.Slot>
+  // 样式常量 - 遵循 Base 开放设计规范
+  const styles = {
+    container: { padding: '0 4px' },
+    header: { marginBottom: 16 },
+    card: { marginBottom: 16, borderRadius: 8 },
+    cardBody: { padding: '16px 20px' },
+    sectionTitle: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 },
+    infoCard: { backgroundColor: 'var(--semi-color-fill-0)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 },
+    stepItem: { marginBottom: 4, color: 'var(--semi-color-text-2)', fontSize: 13, lineHeight: '20px' },
+    buttonGroup: { display: 'flex', gap: 12, marginTop: 16 },
+    progressContainer: { marginTop: 16, marginBottom: 8 },
+  };
 
-        <Space vertical spacing="loose" style={{ width: '100%' }}>
+  return (
+    <div style={styles.container}>
+      {/* 页面标题 */}
+      <div style={styles.header}>
+        <Title heading={5} style={{ marginBottom: 4, color: 'var(--semi-color-text-0)' }}>
+          素材发布
+        </Title>
+        <Text type="tertiary" size="small">
+          自动化发布视频到 TikTok，支持定时发布
+        </Text>
+      </div>
+
+      {/* 发布配置卡片 */}
+      <Card style={styles.card} bodyStyle={styles.cardBody} bordered={false} shadows='hover'>
+        <div style={styles.sectionTitle}>
+          <IconSend style={{ color: 'var(--semi-color-primary)' }} />
+          <Text strong style={{ color: 'var(--semi-color-text-0)' }}>发布配置</Text>
+        </div>
+
+        {/* 功能说明 */}
+        <div style={styles.infoCard}>
+          <Text size="small" style={{ color: 'var(--semi-color-text-1)', fontWeight: 500 }}>发布条件</Text>
+          <div style={{ marginTop: 8 }}>
+            <div style={styles.stepItem}>发布状态 = "等待发布" 且 发布时间 ≤ 当前时间</div>
+            <div style={styles.stepItem}>系统自动检查并刷新过期 Token</div>
+            <div style={styles.stepItem}>自动上传视频到 OSS 并发布到 TikTok</div>
+          </div>
+        </div>
+
+        <Form 
+          labelPosition='top' 
+          onSubmit={handleAutoPublish} 
+          getFormApi={(baseFormApi: BaseFormApi) => formApi.current = baseFormApi}
+        >
           <Form.Select 
             field='materialTable' 
-            label='选择素材库表' 
-            placeholder="请选择素材库表" 
+            label='素材库表'
+            placeholder="选择包含发布信息的素材数据表" 
             style={{ width: '100%' }}
             rules={[{ required: true, message: '请选择素材库表' }]}
-          >
-            {
-              Array.isArray(materialTableMetaList) && materialTableMetaList.map(({ name, id }) => {
-                return (
-                  <Form.Select.Option key={id} value={id}>
-                    {name}
-                  </Form.Select.Option>
-                );
-              })
-            }
-          </Form.Select>
+            optionList={materialTableMetaList?.map(({ name, id }) => ({ label: name, value: id }))}
+          />
 
           <Form.Select 
             field='accountTable' 
-            label='选择账号列表' 
-            placeholder="请选择账号列表" 
+            label='账号列表'
+            placeholder="选择包含 Token 的账号数据表" 
             style={{ width: '100%' }}
             rules={[{ required: true, message: '请选择账号列表' }]}
-          >
-            {
-              Array.isArray(accountTableMetaList) && accountTableMetaList.map(({ name, id }) => {
-                return (
-                  <Form.Select.Option key={id} value={id}>
-                    {name}
-                  </Form.Select.Option>
-                );
-              })
-            }
-          </Form.Select>
+            optionList={accountTableMetaList?.map(({ name, id }) => ({ label: name, value: id }))}
+          />
 
-          <Button 
-            theme='solid' 
-            type="primary"
-            htmlType='submit' 
-            loading={loading}
-            style={{ width: '100%' }}
-          >
-            自动发布
-          </Button>
-
-          <Button 
-            theme='borderless' 
-            type="tertiary"
-            onClick={handleUpdatePublishStatus}
-            loading={updatingStatus}
-            style={{ width: '100%', marginTop: '0.5rem' }}
-          >
-            更新发布状态
-          </Button>
-
+          {/* 进度显示 */}
           {(loading || updatingStatus) && (
-            <div style={{ marginTop: '1rem' }}>
-              <Progress percent={progress} type="line" size="small" />
-              <Text style={{ marginTop: '0.5rem', display: 'block' }}>{status}</Text>
+            <div style={styles.progressContainer}>
+              <Progress 
+                percent={progress} 
+                showInfo 
+                style={{ marginBottom: 8 }}
+                stroke='var(--semi-color-primary)'
+              />
+              <Text type="tertiary" size="small">{status}</Text>
             </div>
           )}
-        </Space>
-      </Form>
+
+          {/* 操作按钮 */}
+          <div style={styles.buttonGroup}>
+            <Button 
+              htmlType='submit' 
+              loading={loading}
+              disabled={updatingStatus}
+              icon={<IconSend />}
+              className="btn-primary"
+              style={{ flex: 1 }}
+            >
+              自动发布
+            </Button>
+            <Button 
+              onClick={handleUpdatePublishStatus}
+              loading={updatingStatus}
+              disabled={loading}
+              icon={<IconRefresh2 />}
+              className="btn-secondary"
+              style={{ flex: 1 }}
+            >
+              更新状态
+            </Button>
+          </div>
+        </Form>
+      </Card>
+
+      {/* 提示信息 */}
+      <Banner 
+        type="warning"
+        description="发布前请确保素材已准备好视频附件和标题。发布操作会调用 TikTok API。"
+        style={{ borderRadius: 8 }}
+      />
     </div>
   );
 }

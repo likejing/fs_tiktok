@@ -1,0 +1,27 @@
+# TikTok 飞书多维表格管理系统 - Cursor 规则
+
+## 项目概述
+这是一个基于 Next.js 的 TikTok 账号管理系统，集成飞书多维表格，用于管理视频、评论、素材发布等功能。
+
+## 技术栈
+- Next.js (Pages Router)
+- TypeScript
+- 飞书多维表格 SDK (@lark-base-open/js-sdk)
+- Semi Design UI (@douyinfe/semi-ui)
+- TikTok Business API
+
+## 开发规范
+1. 使用中文注释
+2. 组件放在 pages/App/components 目录
+3. API 路由放在 pages/api 目录
+4. 工具函数放在 lib 目录
+5. UI 设计遵循 Base 开放设计规范
+
+## 多维表格字段命名
+- 字段名用中文，不超过10个字符
+- 使用 getFieldByName 获取字段时，优先用中文名
+
+## 部署注意事项
+1. 边栏插件打包：output 设为 "dist"，base 使用相对路径 "./"
+2. 使用 hash 路由，禁止 history 路由
+3. 环境变量需要单独配置到生产环境

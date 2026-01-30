@@ -1,6 +1,7 @@
 'use client'
 import { bitable, ITableMeta, FieldType, IAttachmentField } from "@lark-base-open/js-sdk";
-import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi-ui';
+import { Button, Form, Toast, Typography, Space, Progress, Card, Banner } from '@douyinfe/semi-ui';
+import { IconVideo, IconRefresh } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { TIKTOK_VIDEO_LIST_API, TIKTOK_REFRESH_TOKEN_API, PROXY_DOWNLOAD_API } from '../../../lib/constants';
@@ -985,97 +986,101 @@ export default function VideoManagement() {
     });
   }, []);
 
-  return (
-    <div>
-      <Title heading={4} style={{ marginBottom: '1rem' }}>
-        TikTok 视频数据分析
-      </Title>
-      <Text type="tertiary" style={{ marginBottom: '1rem', display: 'block' }}>
-        批量获取 TikTok 账号的视频数据，包括播放量、点赞数、评论数、分享数等关键指标，并自动计算视频高光帧和高光片段，帮助您分析视频表现。
-      </Text>
-      
-      <Form 
-        labelPosition='top' 
-        onSubmit={handleFetchVideoList} 
-        getFormApi={(baseFormApi: BaseFormApi) => formApi.current = baseFormApi}
-        style={{ marginTop: '1rem' }}
-      >
-        <Form.Slot label="使用说明">
-          <div style={{ marginBottom: '1rem', fontSize: '14px', color: '#666', lineHeight: '1.6' }}>
-            <div><strong>功能说明：</strong> 从 TikTok API 获取账号的所有视频数据，包括播放量、点赞数、评论数、分享数、完播率等详细指标</div>
-            <div style={{ marginTop: '0.5rem' }}>
-              <strong>操作步骤：</strong>
-              <div style={{ marginLeft: '1rem', marginTop: '0.25rem' }}>
-                <div>1. 选择账号列表（包含 access_token 和 open_id 字段的数据表）</div>
-                <div>2. 选择视频列表（用于保存视频数据的数据表）</div>
-                <div>3. 点击&ldquo;获取视频列表&rdquo;按钮开始同步</div>
-                <div>4. 系统将自动遍历所有账号，获取每个账号的视频数据并保存</div>
-              </div>
-            </div>
-            <div style={{ marginTop: '0.5rem', color: '#1890ff', fontWeight: '500' }}>
-              💡 提示：系统会自动创建所需字段。如果视频已存在（通过 item_id 判断），将自动更新数据；不存在则新增记录。系统还会自动计算视频的高光帧和高光片段，帮助您快速定位视频亮点。
-            </div>
-            <div style={{ marginTop: '0.5rem', color: '#fa8c16', fontWeight: '500' }}>
-              ⚠️ 注意：此操作会调用 TikTok API 获取所有账号的视频数据，可能需要较长时间，请耐心等待
-            </div>
-          </div>
-        </Form.Slot>
+  // 样式常量 - 遵循 Base 开放设计规范
+  const styles = {
+    container: { padding: '0 4px' },
+    header: { marginBottom: 16 },
+    card: { marginBottom: 16, borderRadius: 8 },
+    cardBody: { padding: '16px 20px' },
+    sectionTitle: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 },
+    infoCard: { backgroundColor: 'var(--semi-color-fill-0)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 },
+    stepItem: { marginBottom: 4, color: 'var(--semi-color-text-2)', fontSize: 13, lineHeight: '20px' },
+    progressContainer: { marginTop: 16, marginBottom: 8 },
+  };
 
-        <Space vertical spacing="loose" style={{ width: '100%' }}>
+  return (
+    <div style={styles.container}>
+      {/* 页面标题 */}
+      <div style={styles.header}>
+        <Title heading={5} style={{ marginBottom: 4, color: 'var(--semi-color-text-0)' }}>
+          视频数据
+        </Title>
+        <Text type="tertiary" size="small">
+          批量获取视频播放量、点赞、评论等数据指标
+        </Text>
+      </div>
+
+      {/* 数据同步卡片 */}
+      <Card style={styles.card} bodyStyle={styles.cardBody} bordered={false} shadows='hover'>
+        <div style={styles.sectionTitle}>
+          <IconVideo style={{ color: 'var(--semi-color-primary)' }} />
+          <Text strong style={{ color: 'var(--semi-color-text-0)' }}>数据同步</Text>
+        </div>
+
+        {/* 功能说明 */}
+        <div style={styles.infoCard}>
+          <Text size="small" style={{ color: 'var(--semi-color-text-1)', fontWeight: 500 }}>功能说明</Text>
+          <div style={{ marginTop: 8 }}>
+            <div style={styles.stepItem}>从 TikTok API 获取视频的播放量、点赞数、评论数、分享数、完播率等详细指标</div>
+            <div style={styles.stepItem}>自动计算视频高光帧和高光片段，帮助定位视频亮点</div>
+            <div style={styles.stepItem}>已存在的视频会自动更新，新视频会自动创建</div>
+          </div>
+        </div>
+
+        <Form 
+          labelPosition='top' 
+          onSubmit={handleFetchVideoList} 
+          getFormApi={(baseFormApi: BaseFormApi) => formApi.current = baseFormApi}
+        >
           <Form.Select 
             field='accountTable' 
-            label='选择账号列表' 
-            placeholder="请选择账号列表" 
+            label='账号列表'
+            placeholder="选择包含 Token 的账号数据表" 
             style={{ width: '100%' }}
             rules={[{ required: true, message: '请选择账号列表' }]}
-          >
-            {
-              Array.isArray(accountTableMetaList) && accountTableMetaList.map(({ name, id }) => {
-                return (
-                  <Form.Select.Option key={id} value={id}>
-                    {name}
-                  </Form.Select.Option>
-                );
-              })
-            }
-          </Form.Select>
+            optionList={accountTableMetaList?.map(({ name, id }) => ({ label: name, value: id }))}
+          />
 
           <Form.Select 
             field='videoTable' 
-            label='选择视频列表' 
-            placeholder="请选择视频列表" 
+            label='视频列表'
+            placeholder="选择保存视频数据的数据表" 
             style={{ width: '100%' }}
             rules={[{ required: true, message: '请选择视频列表' }]}
-          >
-            {
-              Array.isArray(videoTableMetaList) && videoTableMetaList.map(({ name, id }) => {
-                return (
-                  <Form.Select.Option key={id} value={id}>
-                    {name}
-                  </Form.Select.Option>
-                );
-              })
-            }
-          </Form.Select>
+            optionList={videoTableMetaList?.map(({ name, id }) => ({ label: name, value: id }))}
+          />
+
+          {/* 进度显示 */}
+          {loading && (
+            <div style={styles.progressContainer}>
+              <Progress 
+                percent={progress} 
+                showInfo 
+                style={{ marginBottom: 8 }}
+                stroke='var(--semi-color-primary)'
+              />
+              <Text type="tertiary" size="small">{status}</Text>
+            </div>
+          )}
 
           <Button 
-            theme='solid' 
-            type="primary"
             htmlType='submit' 
             loading={loading}
-            style={{ width: '100%' }}
+            icon={<IconRefresh />}
+            className="btn-primary"
+            style={{ width: '100%', marginTop: 8 }}
           >
             获取视频列表
           </Button>
+        </Form>
+      </Card>
 
-          {loading && (
-            <div style={{ marginTop: '1rem' }}>
-              <Progress percent={progress} type="line" size="small" />
-              <Text style={{ marginTop: '0.5rem', display: 'block' }}>{status}</Text>
-            </div>
-          )}
-        </Space>
-      </Form>
+      {/* 提示信息 */}
+      <Banner 
+        type="info"
+        description="此操作会遍历所有账号获取视频数据，可能需要较长时间，请耐心等待。"
+        style={{ borderRadius: 8 }}
+      />
     </div>
   );
 }

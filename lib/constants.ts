@@ -35,3 +35,12 @@ export const PROXY_DOWNLOAD_API = `${API_BASE_URL}/api/proxyDownload`;
 
 // 发布视频（通过API代理）
 export const PUBLISH_VIDEO_API = `${API_BASE_URL}/api/publishVideo`;
+
+// TikTok 评论相关 API（通过API代理）
+export const TIKTOK_COMMENT_LIST_API = `${API_BASE_URL}/api/getTkComments`;
+export const TIKTOK_COMMENT_REPLY_LIST_API = `${API_BASE_URL}/api/getTkCommentReplies`;
+export const TIKTOK_COMMENT_CREATE_API = `${API_BASE_URL}/api/createTkComment`;
+export const TIKTOK_COMMENT_REPLY_CREATE_API = `${API_BASE_URL}/api/createTkCommentReply`;
+export const TIKTOK_COMMENT_LIKE_API = `${API_BASE_URL}/api/likeTkComment`;
+export const TIKTOK_COMMENT_HIDE_API = `${API_BASE_URL}/api/hideTkComment`;
+export const TIKTOK_COMMENT_DELETE_API = `${API_BASE_URL}/api/deleteTkComment`;

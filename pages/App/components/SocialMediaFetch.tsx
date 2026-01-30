@@ -1,7 +1,8 @@
 'use client'
 
 import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
-import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi-ui';
+import { Button, Form, Toast, Typography, Space, Progress, Card, Banner } from '@douyinfe/semi-ui';
+import { IconLink, IconDownload } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { findOrCreateField, convertValueByFieldType } from '../../../lib/fieldUtils';
@@ -611,81 +612,98 @@ export default function SocialMediaFetch() {
     });
   }, []);
 
+  // 样式常量 - 遵循 Base 开放设计规范
+  const styles = {
+    container: { padding: '0 4px' },
+    header: { marginBottom: 16 },
+    card: { marginBottom: 16, borderRadius: 8 },
+    cardBody: { padding: '16px 20px' },
+    sectionTitle: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 },
+    infoCard: { backgroundColor: 'var(--semi-color-fill-0)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 },
+    stepItem: { marginBottom: 4, color: 'var(--semi-color-text-2)', fontSize: 13, lineHeight: '20px' },
+    progressContainer: { marginTop: 16, marginBottom: 8 },
+  };
+
   return (
-    <div>
-      <Title heading={4} style={{ marginBottom: '1rem' }}>
-        TikTok 社媒数据获取
-      </Title>
-      <Text type="tertiary" style={{ marginBottom: '1rem', display: 'block' }}>
-        通过 TikTok 或抖音的分享链接，自动获取视频的详细数据，包括播放量、点赞数、评论数、作者信息等，并自动下载封面图和无水印视频，帮助您快速收集和分析热门内容。
-      </Text>
-      
-      <Form
-        getFormApi={(api) => formApi.current = api}
-        style={{ width: '100%' }}
-      >
-        <Form.Slot label="使用说明">
-          <div style={{ marginBottom: '1rem', fontSize: '14px', color: '#666', lineHeight: '1.6' }}>
-            <div><strong>功能说明：</strong> 根据分享链接自动获取 TikTok 或抖音视频的完整数据，包括视频信息、作者信息、统计数据等，并自动下载封面图和无水印视频作为附件</div>
-            <div style={{ marginTop: '0.5rem' }}>
-              <strong>操作步骤：</strong>
-              <div style={{ marginLeft: '1rem', marginTop: '0.25rem' }}>
-                <div>1. 在数据表的&ldquo;分享链接&rdquo;字段中填写 TikTok 或抖音视频的分享链接</div>
-                <div>2. 选择包含分享链接的数据表</div>
-                <div>3. 点击&ldquo;根据分享链接获取数据&rdquo;按钮</div>
-                <div>4. 系统会自动识别链接类型（TikTok/抖音），获取数据并保存到对应字段</div>
-              </div>
-            </div>
-            <div style={{ marginTop: '0.5rem', color: '#1890ff', fontWeight: '500' }}>
-              💡 提示：系统会自动识别 TikTok 和抖音链接类型，并调用相应的 API 获取数据。如果视频ID字段不为空，将跳过该记录。系统会自动下载封面图和无水印视频并保存为附件。
-            </div>
-            <div style={{ marginTop: '0.5rem', color: '#fa8c16', fontWeight: '500' }}>
-              ⚠️ 注意：分享链接字段不会被修改，系统只会读取链接并获取数据。如果记录已有视频ID，将自动跳过。
-            </div>
+    <div style={styles.container}>
+      {/* 页面标题 */}
+      <div style={styles.header}>
+        <Title heading={5} style={{ marginBottom: 4, color: 'var(--semi-color-text-0)' }}>
+          社媒数据获取
+        </Title>
+        <Text type="tertiary" size="small">
+          通过分享链接获取 TikTok/抖音视频数据
+        </Text>
+      </div>
+
+      {/* 获取配置卡片 */}
+      <Card style={styles.card} bodyStyle={styles.cardBody} bordered={false} shadows='hover'>
+        <div style={styles.sectionTitle}>
+          <IconLink style={{ color: 'var(--semi-color-primary)' }} />
+          <Text strong style={{ color: 'var(--semi-color-text-0)' }}>数据获取</Text>
+        </div>
+
+        {/* 功能说明 */}
+        <div style={styles.infoCard}>
+          <Text size="small" style={{ color: 'var(--semi-color-text-1)', fontWeight: 500 }}>功能说明</Text>
+          <div style={{ marginTop: 8 }}>
+            <div style={styles.stepItem}>支持 TikTok 和抖音分享链接</div>
+            <div style={styles.stepItem}>自动获取视频信息、作者信息、统计数据</div>
+            <div style={styles.stepItem}>自动下载封面图和无水印视频保存为附件</div>
           </div>
-        </Form.Slot>
-        
-        <Space vertical spacing="loose" style={{ width: '100%' }}>
+        </div>
+
+        <Form
+          getFormApi={(api) => formApi.current = api}
+          labelPosition='top'
+        >
           <Form.Select
             field='table'
-            label='选择数据表'
-            placeholder="请选择数据表"
+            label='数据表'
+            placeholder="选择包含分享链接的数据表"
             style={{ width: '100%' }}
             rules={[{ required: true, message: '请选择数据表' }]}
-          >
-            {
-              Array.isArray(tableMetaList) && tableMetaList.map(({ name, id }) => {
-                return (
-                  <Form.Select.Option key={id} value={id}>
-                    {name}
-                  </Form.Select.Option>
-                );
-              })
-            }
-          </Form.Select>
+            optionList={tableMetaList?.map(({ name, id }) => ({ label: name, value: id }))}
+          />
+
+          {/* 进度显示 */}
+          {loading && (
+            <div style={styles.progressContainer}>
+              <Progress 
+                percent={progress} 
+                showInfo 
+                style={{ marginBottom: 8 }}
+                stroke='var(--semi-color-primary)'
+              />
+              <Text type="tertiary" size="small">{status}</Text>
+            </div>
+          )}
+
+          {!loading && status && (
+            <Text type="tertiary" size="small" style={{ display: 'block', marginTop: 8 }}>{status}</Text>
+          )}
 
           <Button
-            theme='solid'
-            type="secondary"
             loading={loading}
-            style={{ width: '100%' }}
+            icon={<IconDownload />}
+            className="btn-primary"
+            style={{ width: '100%', marginTop: 16 }}
             onClick={() => {
               const values = formApi.current?.getValues() || {};
               handleFetchByShareUrl({ table: values.table });
             }}
           >
-            根据分享链接获取数据
+            获取数据
           </Button>
+        </Form>
+      </Card>
 
-          {loading && (
-            <Progress percent={progress} showInfo />
-          )}
-
-          {status && (
-            <Text type="tertiary">{status}</Text>
-          )}
-        </Space>
-      </Form>
+      {/* 提示信息 */}
+      <Banner 
+        type="info"
+        description="在数据表的「分享链接」字段填写视频链接，系统会自动解析并获取数据。已有视频ID的记录会跳过。"
+        style={{ borderRadius: 8 }}
+      />
     </div>
   );
 }
