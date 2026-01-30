@@ -147,18 +147,20 @@ export default function MaterialPublish() {
           
           console.log(`✅ 找到匹配账号 - recordId: ${record.recordId}, access_token: ${accessTokenStr ? accessTokenStr.substring(0, 30) + '...' : '(空)'}`);
           
-          // 检查Token失效时间
+          // 检查Token失效时间 - token失效时间字段为数字类型（时间戳毫秒）
           if (tokenExpiresTimeField) {
             try {
-              const expiresTimeValue = await getFieldStringValue(accountTable, tokenExpiresTimeField, record.recordId);
+              // 直接获取数字类型的时间戳
+              const expiresFieldValue = await tokenExpiresTimeField.getValue(record.recordId);
+              const expiresTimestamp = typeof expiresFieldValue === 'number' ? expiresFieldValue : 
+                                       (expiresFieldValue ? Number(expiresFieldValue) : 0);
               let shouldRefresh = false;
               const now = Date.now();
 
-              if (expiresTimeValue) {
-                const expiresTime = new Date(expiresTimeValue).getTime();
-                const timeUntilExpiry = expiresTime - now;
+              if (expiresTimestamp > 0) {
+                const timeUntilExpiry = expiresTimestamp - now;
                 
-                console.log(`Token失效时间检查: ${new Date(expiresTime).toLocaleString()}, 剩余时间: ${Math.round(timeUntilExpiry / 1000 / 60)}分钟`);
+                console.log(`Token失效时间检查: ${new Date(expiresTimestamp).toLocaleString()}, 剩余时间: ${Math.round(timeUntilExpiry / 1000 / 60)}分钟`);
                 
                 // 如果Token已失效或将在5分钟内失效，尝试刷新
                 if (timeUntilExpiry < 5 * 60 * 1000) { // 5分钟缓冲时间
@@ -186,28 +188,11 @@ export default function MaterialPublish() {
                         updateFields[refreshTokenField.id] = newTokenData.refresh_token;
                       }
                       
-                      // 计算新的失效时间（expires_in是秒数），并根据字段类型写入合适的格式
+                      // 计算新的失效时间（expires_in是秒数）- 直接使用时间戳（毫秒）
                       if (tokenExpiresTimeField && newTokenData.expires_in) {
                         const newExpiresTimestamp = now + newTokenData.expires_in * 1000;
-                        const newExpiresTime = new Date(newExpiresTimestamp);
-
-                        try {
-                          const expiresFieldType = await tokenExpiresTimeField.getType();
-                          if (expiresFieldType === FieldType.Number) {
-                            // 数字类型字段，直接存时间戳（毫秒）
-                            updateFields[tokenExpiresTimeField.id] = newExpiresTimestamp;
-                            console.log(`新的Token失效时间(时间戳): ${newExpiresTimestamp} (${newExpiresTime.toLocaleString()})`);
-                          } else {
-                            // 其他类型（如文本、日期时间），统一存 ISO 字符串
-                            updateFields[tokenExpiresTimeField.id] = newExpiresTime.toISOString();
-                            console.log(`新的Token失效时间(ISO): ${newExpiresTime.toISOString()} (${newExpiresTime.toLocaleString()})`);
-                          }
-                        } catch (typeErr) {
-                          // 获取类型失败时，退化为字符串写入
-                          console.warn('获取 token失效时间 字段类型失败，按字符串写入:', typeErr);
-                          updateFields[tokenExpiresTimeField.id] = newExpiresTime.toISOString();
-                          console.log(`新的Token失效时间(回退ISO): ${newExpiresTime.toISOString()} (${newExpiresTime.toLocaleString()})`);
-                        }
+                        updateFields[tokenExpiresTimeField.id] = newExpiresTimestamp;
+                        console.log(`新的Token失效时间: ${new Date(newExpiresTimestamp).toLocaleString()} (时间戳: ${newExpiresTimestamp})`);
                       }
                       
                       // 更新记录

@@ -3,7 +3,7 @@ import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
 import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi-ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
-import { TIKTOK_VIDEO_LIST_API, TIKTOK_REFRESH_TOKEN_API, UPLOAD_TO_OSS_API } from '../../../lib/constants';
+import { TIKTOK_VIDEO_LIST_API, TIKTOK_REFRESH_TOKEN_API } from '../../../lib/constants';
 import { 
   getFieldStringValue, 
   getFieldTypeByValue, 
@@ -28,41 +28,9 @@ const VIDEO_FIELD_MAPPING: Record<string, string> = {
 };
 
 // 需要作为 URL 类型处理的字段（会创建 URL 类型字段，可点击预览）
-const URL_FIELDS = ['share_url', 'embed_url'];
+// 注意：飞书多维表格附件字段不支持直接使用外部 URL，所以 thumbnail_url 也作为 URL 类型保存
+const URL_FIELDS = ['share_url', 'embed_url', 'thumbnail_url'];
 
-// 需要上传到附件字段的图片 URL 字段
-const ATTACHMENT_URL_FIELDS = ['thumbnail_url'];
-
-// 上传图片到 OSS 并返回 URL
-async function uploadImageToOSS(imageUrl: string, fileName: string): Promise<string | null> {
-  try {
-    console.log(`📤 开始上传封面图片到 OSS: ${fileName}`);
-    const response = await fetch(UPLOAD_TO_OSS_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        fileUrl: imageUrl,
-        fileName: fileName,
-        folder: 'tiktok-thumbnails'
-      })
-    });
-
-    const result = await response.json();
-
-    if (result.code === 0 && result.data && result.data.url) {
-      console.log(`✅ 封面图片上传成功: ${result.data.url}`);
-      return result.data.url;
-    } else {
-      console.error(`❌ 封面图片上传失败:`, result);
-      return null;
-    }
-  } catch (e) {
-    console.error(`❌ 封面图片上传异常:`, e);
-    return null;
-  }
-}
 
 // 高光分析算法配置
 const HIGHLIGHT_CONFIG = {
@@ -535,11 +503,11 @@ export default function VideoManagement() {
                     updateFields[refreshTokenField.id] = newTokenData.refresh_token;
                   }
                   
-                  // 计算新的失效时间（expires_in是秒数）
+                  // 计算新的失效时间（expires_in是秒数）- 直接使用时间戳（毫秒）
                   if (tokenExpiresTimeField && newTokenData.expires_in) {
-                    const newExpiresTime = new Date(now + newTokenData.expires_in * 1000);
-                    updateFields[tokenExpiresTimeField.id] = newExpiresTime.toISOString();
-                    console.log(`新的Token失效时间: ${newExpiresTime.toLocaleString()}`);
+                    const newExpiresTimestamp = now + newTokenData.expires_in * 1000;
+                    updateFields[tokenExpiresTimeField.id] = newExpiresTimestamp;
+                    console.log(`新的Token失效时间: ${new Date(newExpiresTimestamp).toLocaleString()} (时间戳: ${newExpiresTimestamp})`);
                   }
                   
                   // 更新记录
@@ -565,16 +533,19 @@ export default function VideoManagement() {
             }
           };
 
-          // 检查Token失效时间并刷新（如果失效）
+          // 检查Token失效时间并刷新（如果失效）- token失效时间字段为数字类型（时间戳毫秒）
           if (tokenExpiresTimeField) {
             try {
-              const expiresTimeValue = await getFieldStringValue(accountTable, tokenExpiresTimeField, accountRecordId);
-              if (expiresTimeValue) {
-                const expiresTime = new Date(expiresTimeValue).getTime();
+              // 直接获取数字类型的时间戳
+              const expiresFieldValue = await tokenExpiresTimeField.getValue(accountRecordId);
+              const expiresTimestamp = typeof expiresFieldValue === 'number' ? expiresFieldValue : 
+                                       (expiresFieldValue ? Number(expiresFieldValue) : 0);
+              
+              if (expiresTimestamp > 0) {
                 const now = Date.now();
-                const timeUntilExpiry = expiresTime - now;
+                const timeUntilExpiry = expiresTimestamp - now;
                 
-                console.log(`Token失效时间检查: ${new Date(expiresTime).toLocaleString()}, 剩余时间: ${Math.round(timeUntilExpiry / 1000 / 60)}分钟`);
+                console.log(`Token失效时间检查: ${new Date(expiresTimestamp).toLocaleString()}, 剩余时间: ${Math.round(timeUntilExpiry / 1000 / 60)}分钟`);
                 
                 // 如果Token已失效或将在5分钟内失效，尝试刷新
                 if (timeUntilExpiry < 5 * 60 * 1000) { // 5分钟缓冲时间
@@ -582,7 +553,7 @@ export default function VideoManagement() {
                   await refreshTokenIfNeeded();
                 }
               } else {
-                console.log(`⚠️ Token失效时间字段为空，无法判断是否失效`);
+                console.log(`⚠️ Token失效时间字段为空或无效，无法判断是否失效`);
               }
             } catch (e) {
               console.warn(`检查Token失效时间失败:`, e);
@@ -653,8 +624,11 @@ export default function VideoManagement() {
               // 处理每个视频
               for (const video of videos) {
                 try {
+                  // 每个视频处理前刷新 table 引用，避免 "table not found" 错误
+                  const videoTableRef = await bitable.base.getTableById(videoTableId);
+                  
                   // 检查视频是否已存在（通过 item_id）
-                  const existingRecordId = await findVideoByItemId(currentVideoTable, itemIdField, video.item_id);
+                  const existingRecordId = await findVideoByItemId(videoTableRef, itemIdField, video.item_id);
 
                   // 准备要保存的字段数据
                   const fields: Record<string, any> = {};
@@ -683,7 +657,7 @@ export default function VideoManagement() {
                     // 保存高光帧（格式：n秒, n秒）
                     if (highlightFrames.length > 0) {
                       const highlightFramesField = await findOrCreateField(
-                        currentVideoTable,
+                        videoTableRef,
                         videoFieldList,
                         'highlight_frames',
                         FieldType.Text
@@ -701,7 +675,7 @@ export default function VideoManagement() {
                     // 保存高光片段（格式：n~m秒, n~m秒）
                     if (highlightSegments.length > 0) {
                       const highlightSegmentsField = await findOrCreateField(
-                        currentVideoTable,
+                        videoTableRef,
                         videoFieldList,
                         'highlight_segments',
                         FieldType.Text
@@ -718,9 +692,6 @@ export default function VideoManagement() {
                   } catch (highlightError) {
                     console.warn(`计算高光帧/片段失败 (视频 ${video.item_id}):`, highlightError);
                   }
-
-                  // 用于存储需要后续处理的附件
-                  const pendingAttachments: Array<{ fieldId: string; ossUrl: string }> = [];
 
                   // 遍历视频数据中的每个字段
                   for (const [key, value] of Object.entries(video)) {
@@ -745,49 +716,12 @@ export default function VideoManagement() {
                         }
                       }
 
-                      // 判断是否为需要上传到附件的图片 URL 字段
-                      const isAttachmentUrlField = ATTACHMENT_URL_FIELDS.includes(key);
                       // 判断是否为 URL 字段
                       const isUrlField = URL_FIELDS.includes(key);
                       
-                      // 处理附件字段（如 thumbnail_url）
-                      if (isAttachmentUrlField && typeof value === 'string' && value) {
-                        // 查找或创建附件字段（字段名带"附件"后缀）
-                        const attachmentFieldName = `${fieldName}附件`;
-                        let attachmentField = await findOrCreateField(
-                          currentVideoTable,
-                          videoFieldList,
-                          attachmentFieldName,
-                          FieldType.Attachment
-                        );
-
-                        if (attachmentField) {
-                          // 上传图片到 OSS
-                          const ossUrl = await uploadImageToOSS(value, `thumbnail_${video.item_id}.jpg`);
-                          if (ossUrl) {
-                            pendingAttachments.push({ fieldId: attachmentField.id, ossUrl });
-                          }
-                        }
-
-                        // 同时保存原始 URL 到 URL 类型字段
-                        let urlField = await findOrCreateField(
-                          currentVideoTable,
-                          videoFieldList,
-                          fieldName,
-                          FieldType.Url
-                        );
-                        if (urlField) {
-                          fields[urlField.id] = {
-                            link: value,
-                            text: '查看封面'
-                          };
-                        }
-                        continue;
-                      }
-                      
                       // 查找或创建字段（URL 字段创建为 URL 类型，其他按值类型）
                       let field = await findOrCreateField(
-                        currentVideoTable,
+                        videoTableRef,
                         videoFieldList,
                         fieldName,
                         isUrlField ? FieldType.Url : getFieldTypeByValue(fieldValue)
@@ -798,13 +732,10 @@ export default function VideoManagement() {
                         continue;
                       }
 
-                      // 处理 URL 字段
+                      // 处理 URL 字段（使用纯字符串格式）
                       if (isUrlField && typeof value === 'string' && value) {
-                        // URL 字段格式：{ link: 'url', text: '显示文本' }
-                        fields[field.id] = {
-                          link: value,
-                          text: key === 'share_url' ? '分享链接' : '链接'
-                        };
+                        // 飞书多维表格 URL 字段直接使用字符串格式
+                        fields[field.id] = value;
                         console.log(`✅ URL字段 ${fieldName} 已设置:`, value);
                         continue;
                       }
@@ -821,49 +752,24 @@ export default function VideoManagement() {
                     }
                   }
 
+                  // 过滤掉无效的字段值（undefined、null 等）
+                  const validFields: Record<string, any> = {};
+                  for (const [fieldId, fieldValue] of Object.entries(fields)) {
+                    if (fieldValue !== undefined && fieldValue !== null && fieldValue !== '') {
+                      validFields[fieldId] = fieldValue;
+                    }
+                  }
+                  
+                  console.log(`📝 准备保存 ${Object.keys(validFields).length} 个字段`);
+
                   // 保存或更新记录
-                  let recordId: string;
                   if (existingRecordId) {
-                    await currentVideoTable.setRecord(existingRecordId, { fields });
-                    recordId = existingRecordId;
+                    await videoTableRef.setRecord(existingRecordId, { fields: validFields });
                     console.log(`✅ 更新视频 ${video.item_id}`);
                   } else {
-                    const newRecordId = await currentVideoTable.addRecord({ fields });
-                    recordId = newRecordId as string;
+                    await videoTableRef.addRecord({ fields: validFields });
                     console.log(`✅ 新增视频 ${video.item_id}`);
                     totalVideos++;
-                  }
-
-                  // 处理附件字段（需要在记录创建/更新后设置）
-                  for (const { fieldId, ossUrl } of pendingAttachments) {
-                    try {
-                      const attachmentField = await currentVideoTable.getFieldById(fieldId);
-                      // 使用 bitable SDK 的方式设置附件
-                      // 附件字段需要通过 URL 方式设置
-                      await (attachmentField as any).setValue(recordId, [{
-                        name: `thumbnail_${video.item_id}.jpg`,
-                        type: 'image/jpeg',
-                        url: ossUrl
-                      }]);
-                      console.log(`✅ 附件字段已设置:`, ossUrl);
-                    } catch (attachError) {
-                      console.warn(`设置附件字段失败:`, attachError);
-                      // 如果设置附件失败，尝试使用 setRecord 方式
-                      try {
-                        await currentVideoTable.setRecord(recordId, {
-                          fields: {
-                            [fieldId]: [{
-                              name: `thumbnail_${video.item_id}.jpg`,
-                              type: 'image/jpeg', 
-                              url: ossUrl
-                            }]
-                          }
-                        });
-                        console.log(`✅ 通过 setRecord 设置附件成功`);
-                      } catch (e2) {
-                        console.error(`setRecord 设置附件也失败:`, e2);
-                      }
-                    }
                   }
                 } catch (e: any) {
                   console.error(`处理视频 ${video.item_id} 时出错:`, e);
