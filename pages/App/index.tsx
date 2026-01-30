@@ -7,7 +7,8 @@ import {
   IconComment, 
   IconSend, 
   IconStar, 
-  IconLink 
+  IconLink,
+  IconImage
 } from '@douyinfe/semi-icons';
 
 import AccountManagement from './components/AccountManagement';
@@ -16,6 +17,7 @@ import CommentManagement from './components/CommentManagement';
 import MaterialPublish from './components/MaterialPublish';
 import AIGenerate from './components/AIGenerate';
 import SocialMediaFetch from './components/SocialMediaFetch';
+import NanoGenerate from './components/NanoGenerate';
 
 const { Title, Text } = Typography;
 
@@ -97,6 +99,13 @@ export default function App() {
           itemKey="ai"
         >
           <AIGenerate />
+        </Tabs.TabPane>
+
+        <Tabs.TabPane 
+          tab={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><IconImage size="small" />Nano</span>} 
+          itemKey="nano"
+        >
+          <NanoGenerate />
         </Tabs.TabPane>
 
         <Tabs.TabPane 

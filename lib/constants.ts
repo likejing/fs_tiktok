@@ -24,6 +24,9 @@ export const APIMART_VIDEO_GENERATE_API = `${API_BASE_URL}/api/generateApimart`;
 // Apimart 任务状态查询（通过API代理）
 export const APIMART_TASK_STATUS_API = `${API_BASE_URL}/api/getApimartTaskStatus`;
 
+// Apimart Nano (Gemini-3-Pro-Image-preview) 图像生成（通过API代理）
+export const APIMART_NANO_IMAGE_API = `${API_BASE_URL}/api/generateNanoImage`;
+
 // TikHub - 根据分享链接获取视频数据（通过API代理）
 export const TIKHUB_FETCH_ONE_VIDEO_API = `${API_BASE_URL}/api/fetchSocialVideo`;
 
