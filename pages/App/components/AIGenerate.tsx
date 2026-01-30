@@ -8,6 +8,67 @@ import { APIMART_VIDEO_GENERATE_API, APIMART_TASK_STATUS_API, UPLOAD_TO_OSS_API 
 
 const { Title, Text } = Typography;
 
+// Sora2 API 参数配置
+// 必填参数: model, prompt
+// 可选参数: duration, aspect_ratio, image_urls, watermark, thumbnail, private, style, storyboard, character_url, character_timestamps
+const SORA2_CONFIG = {
+  // 支持的模型
+  models: ['sora-2', 'sora-2-pro'] as const,
+  // 支持的时长（秒）：sora-2 支持 10/15，sora-2-pro 支持 10/15/25
+  durations: {
+    'sora-2': [10, 15],
+    'sora-2-pro': [10, 15, 25]
+  },
+  // 支持的分辨率
+  aspectRatios: ['16:9', '9:16'] as const,
+  // 支持的视频风格
+  styles: [
+    { value: '', label: '默认' },
+    { value: 'thanksgiving', label: '感恩节风格' },
+    { value: 'comic', label: '漫画风格' },
+    { value: 'news', label: '新闻风格' },
+    { value: 'selfie', label: '自拍风格' },
+    { value: 'nostalgic', label: '复古风格' },
+    { value: 'anime', label: '动漫风格' }
+  ],
+  // 默认值
+  defaults: {
+    model: 'sora-2' as const,
+    duration: 10,
+    aspectRatio: '16:9' as const,
+    watermark: false,
+    private: false
+  }
+};
+
+// 表格字段配置
+const FIELD_CONFIG = {
+  // 必填字段
+  required: {
+    prompt: ['文本提示词', 'prompt', 'Prompt']  // 视频描述（必填）
+  },
+  // 可选字段
+  optional: {
+    referenceImage: ['参考图', 'reference_image', 'Image'],  // 参考图片（附件）
+    orientation: ['横竖屏', 'orientation', 'Orientation'],  // 16:9 或 9:16
+    duration: ['生成时长', 'duration', 'Duration'],  // 视频时长
+    style: ['视频风格', 'style', 'Style'],  // 视频风格
+    watermark: ['添加水印', 'watermark', 'Watermark'],  // 是否添加水印
+    thumbnail: ['生成缩略图', 'thumbnail', 'Thumbnail'],  // 是否生成缩略图
+    privateMode: ['隐私模式', 'private', 'Private'],  // 是否开启隐私模式
+    storyboard: ['故事板', 'storyboard', 'Storyboard'],  // 是否使用故事板
+    characterUrl: ['角色视频URL', 'character_url', 'CharacterUrl'],  // 参考视频角色URL
+    characterTimestamps: ['角色时间戳', 'character_timestamps', 'CharacterTimestamps'],  // 角色出现时间戳
+    shouldGenerate: ['是否生成Sora', 'should_generate', 'ShouldGenerate']  // 控制是否生成
+  },
+  // 输出字段
+  output: {
+    sora2Video: ['Sora2视频', 'sora2_video', 'Sora2Video'],  // 生成的视频（附件）
+    taskId: ['任务ID', 'task_id', 'TaskId'],  // 任务ID
+    taskStatus: ['生成状态', '状态', 'status', 'Status']  // 任务状态
+  }
+};
+
 export default function AIGenerate() {
   const [tableMetaList, setTableMetaList] = useState<ITableMeta[]>();
   const [loading, setLoading] = useState(false);
@@ -129,32 +190,133 @@ export default function AIGenerate() {
     }
   };
 
-  // 根据横竖屏和时长构建生成参数
-  const getGenerationParams = (orientation: string | null, duration: string | null) => {
-    const defaultOrientation = '横屏';
-    const defaultDuration = '10s';
+  // 解析布尔值字段
+  const parseBooleanField = (value: string | null): boolean | undefined => {
+    if (!value) return undefined;
+    const v = value.toLowerCase().trim();
+    if (v === '是' || v === 'true' || v === 'yes' || v === '1') return true;
+    if (v === '否' || v === 'false' || v === 'no' || v === '0') return false;
+    return undefined;
+  };
 
-    const ori = orientation || defaultOrientation;
-    const isPortrait = ori.includes('竖屏') || ori.toLowerCase().includes('portrait');
-    const aspect_ratio = isPortrait ? '9:16' : '16:9';
+  // 解析时长字段
+  const parseDuration = (duration: string | null): number => {
+    if (!duration) return SORA2_CONFIG.defaults.duration;
+    const dur = duration.trim();
+    if (dur.includes('25')) return 25;
+    if (dur.includes('15')) return 15;
+    return 10;
+  };
 
-    const dur = duration || defaultDuration;
-    let durationSec = 10;
-    if (dur.includes('25')) {
-      durationSec = 25;
-    } else if (dur.includes('15')) {
-      durationSec = 15;
-    } else {
-      durationSec = 10;
+  // 解析横竖屏字段
+  const parseAspectRatio = (orientation: string | null): '16:9' | '9:16' => {
+    if (!orientation) return SORA2_CONFIG.defaults.aspectRatio;
+    const ori = orientation.trim();
+    if (ori.includes('竖屏') || ori.toLowerCase().includes('portrait') || ori === '9:16') {
+      return '9:16';
     }
+    return '16:9';
+  };
 
+  // 解析视频风格字段
+  const parseStyle = (style: string | null): string | undefined => {
+    if (!style) return undefined;
+    const s = style.toLowerCase().trim();
+    const found = SORA2_CONFIG.styles.find(item => 
+      item.value === s || item.label.toLowerCase().includes(s)
+    );
+    return found?.value || undefined;
+  };
+
+  // 根据表格字段值构建生成参数
+  interface GenerationFieldValues {
+    orientation?: string | null;
+    duration?: string | null;
+    style?: string | null;
+    watermark?: string | null;
+    thumbnail?: string | null;
+    privateMode?: string | null;
+    storyboard?: string | null;
+    characterUrl?: string | null;
+    characterTimestamps?: string | null;
+  }
+
+  const buildGenerationPayload = (
+    prompt: string,
+    imageUrls: string[],
+    fieldValues: GenerationFieldValues
+  ) => {
+    // 解析字段值
+    const durationSec = parseDuration(fieldValues.duration || null);
+    const aspectRatio = parseAspectRatio(fieldValues.orientation || null);
+    const style = parseStyle(fieldValues.style || null);
+    const watermark = parseBooleanField(fieldValues.watermark || null);
+    const thumbnail = parseBooleanField(fieldValues.thumbnail || null);
+    const privateMode = parseBooleanField(fieldValues.privateMode || null);
+    const storyboard = parseBooleanField(fieldValues.storyboard || null);
+
+    // 根据时长选择模型：25秒需要 sora-2-pro
     const model = durationSec >= 25 ? 'sora-2-pro' : 'sora-2';
 
-    console.log(
-      `生成参数: 横竖屏=${ori}, 时长=${dur}, aspect_ratio=${aspect_ratio}, duration=${durationSec}, model=${model}`
-    );
+    // 构建必填参数
+    const payload: Record<string, any> = {
+      model,
+      prompt
+    };
 
-    return { aspect_ratio, duration: durationSec, model };
+    // 添加可选参数（仅在有值时添加）
+    payload.duration = durationSec;
+    payload.aspect_ratio = aspectRatio;
+
+    if (imageUrls.length > 0) {
+      payload.image_urls = imageUrls;
+    }
+
+    if (style) {
+      payload.style = style;
+    }
+
+    if (watermark !== undefined) {
+      payload.watermark = watermark;
+    }
+
+    if (thumbnail !== undefined) {
+      payload.thumbnail = thumbnail;
+    }
+
+    if (privateMode !== undefined) {
+      payload.private = privateMode;
+    }
+
+    if (storyboard !== undefined) {
+      payload.storyboard = storyboard;
+    }
+
+    // 角色相关参数
+    if (fieldValues.characterUrl) {
+      payload.character_url = fieldValues.characterUrl.trim();
+    }
+
+    if (fieldValues.characterTimestamps) {
+      payload.character_timestamps = fieldValues.characterTimestamps.trim();
+    }
+
+    console.log('📝 生成参数:', {
+      model: payload.model,
+      prompt: payload.prompt.substring(0, 50) + '...',
+      duration: payload.duration,
+      aspect_ratio: payload.aspect_ratio,
+      image_urls: payload.image_urls?.length || 0,
+      style: payload.style,
+      watermark: payload.watermark,
+      thumbnail: payload.thumbnail,
+      private: payload.private,
+      storyboard: payload.storyboard,
+      character_url: payload.character_url ? '已设置' : undefined,
+      character_timestamps: payload.character_timestamps
+    });
+
+    return payload;
   };
 
   // 调用 Apimart 视频生成接口（返回异步任务）
@@ -274,118 +436,100 @@ export default function AIGenerate() {
       const table = await bitable.base.getTableById(tableId);
       let fieldList = await table.getFieldList();
 
-      // 查找必需字段
-      let promptField: any = null;
-      let referenceImageField: any = null;
-      let sora2VideoField: any = null; // 已生成视频（存在则跳过）
-      let shouldGenerateField: any = null;
-      let orientationField: any = null; // 横竖屏字段
-      let durationField: any = null; // 生成时长字段
-      let taskIdField: any = null; // 任务ID
-      let taskStatusField: any = null; // 生成状态
-
-      // 遍历字段列表，通过 getName() 获取字段名称并匹配
-      for (const field of fieldList) {
-        try {
-          const fieldName = await field.getName();
-          if (fieldName === '文本提示词' || fieldName === 'prompt') {
-            promptField = field;
-          } else if (fieldName === '参考图' || fieldName === 'reference_image') {
-            referenceImageField = field;
-          } else if (fieldName === 'Sora2视频' || fieldName === 'sora2_video') {
-            sora2VideoField = field;
-          } else if (fieldName === '是否生成Sora' || fieldName === 'should_generate') {
-            shouldGenerateField = field;
-          } else if (fieldName === '横竖屏' || fieldName === 'orientation') {
-            orientationField = field;
-          } else if (fieldName === '生成时长' || fieldName === 'duration') {
-            durationField = field;
-          } else if (fieldName === '任务ID' || fieldName === 'task_id' || fieldName === 'Task ID') {
-            taskIdField = field;
-          } else if (fieldName === '生成状态' || fieldName === '状态' || (typeof fieldName === 'string' && fieldName.toLowerCase() === 'status')) {
-            taskStatusField = field;
+      // 查找字段的辅助函数
+      const findFieldByNames = async (names: string[]): Promise<any> => {
+        for (const field of fieldList) {
+          try {
+            const fieldName = await field.getName();
+            if (names.some(n => n.toLowerCase() === fieldName.toLowerCase())) {
+              return field;
+            }
+          } catch (e) {
+            // 忽略错误
           }
-        } catch (e) {
-          console.warn('获取字段名称失败:', e);
         }
-      }
+        // 尝试通过 getFieldByName 获取
+        for (const name of names) {
+          try {
+            return await table.getFieldByName(name);
+          } catch (e) {
+            // 继续尝试下一个名称
+          }
+        }
+        return null;
+      };
 
-      // 如果字段不存在，尝试通过名称获取
+      // === 必填字段 ===
+      const promptField = await findFieldByNames(FIELD_CONFIG.required.prompt);
       if (!promptField) {
-        try {
-          promptField = await table.getFieldByName('文本提示词');
-        } catch (e) {
-          console.warn('文本提示词字段不存在');
-        }
+        Toast.error('数据表中未找到"文本提示词"字段（必填）');
+        setLoading(false);
+        return;
       }
 
-      if (!referenceImageField) {
-        try {
-          referenceImageField = await table.getFieldByName('参考图');
-        } catch (e) {
-          console.warn('参考图字段不存在');
-        }
-      }
+      // === 可选字段 ===
+      const referenceImageField = await findFieldByNames(FIELD_CONFIG.optional.referenceImage);
+      const orientationField = await findFieldByNames(FIELD_CONFIG.optional.orientation);
+      const durationField = await findFieldByNames(FIELD_CONFIG.optional.duration);
+      const styleField = await findFieldByNames(FIELD_CONFIG.optional.style);
+      const watermarkField = await findFieldByNames(FIELD_CONFIG.optional.watermark);
+      const thumbnailField = await findFieldByNames(FIELD_CONFIG.optional.thumbnail);
+      const privateModeField = await findFieldByNames(FIELD_CONFIG.optional.privateMode);
+      const storyboardField = await findFieldByNames(FIELD_CONFIG.optional.storyboard);
+      const characterUrlField = await findFieldByNames(FIELD_CONFIG.optional.characterUrl);
+      const characterTimestampsField = await findFieldByNames(FIELD_CONFIG.optional.characterTimestamps);
+      const shouldGenerateField = await findFieldByNames(FIELD_CONFIG.optional.shouldGenerate);
 
+      // === 输出字段（自动创建如果不存在） ===
+      let sora2VideoField = await findFieldByNames(FIELD_CONFIG.output.sora2Video);
       if (!sora2VideoField) {
-        try {
-          sora2VideoField = await table.getFieldByName('Sora2视频');
-        } catch (e) {
-          // 创建Sora2视频字段（如果不存在）
-          sora2VideoField = await findOrCreateField(table, fieldList, 'Sora2视频', FieldType.Attachment);
-          if (!sora2VideoField) {
-            Toast.error('无法创建或获取 Sora2视频 字段');
-            setLoading(false);
-            return;
-          }
-          fieldList = await table.getFieldList();
+        sora2VideoField = await findOrCreateField(table, fieldList, 'Sora2视频', FieldType.Attachment);
+        if (!sora2VideoField) {
+          Toast.error('无法创建或获取 Sora2视频 字段');
+          setLoading(false);
+          return;
         }
+        fieldList = await table.getFieldList();
       }
 
-      if (!shouldGenerateField) {
-        try {
-          shouldGenerateField = await table.getFieldByName('是否生成Sora');
-        } catch (e) {
-          console.warn('是否生成Sora字段不存在');
-        }
-      }
-
-      if (!orientationField) {
-        try {
-          orientationField = await table.getFieldByName('横竖屏');
-        } catch (e) {
-          console.warn('横竖屏字段不存在');
-        }
-      }
-
-      if (!durationField) {
-        try {
-          durationField = await table.getFieldByName('生成时长');
-        } catch (e) {
-          console.warn('生成时长字段不存在');
-        }
-      }
-
+      let taskIdField = await findFieldByNames(FIELD_CONFIG.output.taskId);
       if (!taskIdField) {
         taskIdField = await findOrCreateField(table, fieldList, '任务ID', FieldType.Text);
         fieldList = await table.getFieldList();
       }
 
+      let taskStatusField = await findFieldByNames(FIELD_CONFIG.output.taskStatus);
       if (!taskStatusField) {
         taskStatusField = await findOrCreateField(table, fieldList, '生成状态', FieldType.Text);
         fieldList = await table.getFieldList();
       }
 
-      // 验证必需字段
-      if (!promptField) {
-        Toast.error('数据表中未找到"文本提示词"字段');
-        setLoading(false);
-        return;
-      }
+      // 日志：字段检测结果
+      console.log('📋 字段检测结果:', {
+        '必填': { '文本提示词': !!promptField },
+        '可选': {
+          '参考图': !!referenceImageField,
+          '横竖屏': !!orientationField,
+          '生成时长': !!durationField,
+          '视频风格': !!styleField,
+          '添加水印': !!watermarkField,
+          '生成缩略图': !!thumbnailField,
+          '隐私模式': !!privateModeField,
+          '故事板': !!storyboardField,
+          '角色视频URL': !!characterUrlField,
+          '角色时间戳': !!characterTimestampsField,
+          '是否生成Sora': !!shouldGenerateField
+        },
+        '输出': {
+          'Sora2视频': !!sora2VideoField,
+          '任务ID': !!taskIdField,
+          '生成状态': !!taskStatusField
+        }
+      });
 
       // 参考图字段是可选的（支持文生视频）
       if (!referenceImageField) {
-        console.warn('未找到"参考图"字段，将仅支持文生视频');
+        console.log('ℹ️ 未找到"参考图"字段，将仅支持文生视频');
       }
 
       // 获取所有记录
@@ -442,22 +586,30 @@ export default function AIGenerate() {
             }
           }
 
-          // 获取文本提示词
+          // 获取文本提示词（必填）
           const prompt = await getFieldStringValue(table, promptField, recordId);
           if (!prompt) {
-            console.log(`记录 ${recordId} 缺少文本提示词，跳过`);
+            console.log(`记录 ${recordId} 缺少文本提示词（必填），跳过`);
             skipCount++;
             continue;
           }
 
-          // 获取横竖屏和生成时长 -> 构建生成参数
-          const orientation = orientationField ? await getFieldStringValue(table, orientationField, recordId) : null;
-          const duration = durationField ? await getFieldStringValue(table, durationField, recordId) : null;
-          const { aspect_ratio, duration: durationSec, model } = getGenerationParams(orientation, duration);
+          // 获取所有可选字段值
+          const fieldValues = {
+            orientation: orientationField ? await getFieldStringValue(table, orientationField, recordId) : null,
+            duration: durationField ? await getFieldStringValue(table, durationField, recordId) : null,
+            style: styleField ? await getFieldStringValue(table, styleField, recordId) : null,
+            watermark: watermarkField ? await getFieldStringValue(table, watermarkField, recordId) : null,
+            thumbnail: thumbnailField ? await getFieldStringValue(table, thumbnailField, recordId) : null,
+            privateMode: privateModeField ? await getFieldStringValue(table, privateModeField, recordId) : null,
+            storyboard: storyboardField ? await getFieldStringValue(table, storyboardField, recordId) : null,
+            characterUrl: characterUrlField ? await getFieldStringValue(table, characterUrlField, recordId) : null,
+            characterTimestamps: characterTimestampsField ? await getFieldStringValue(table, characterTimestampsField, recordId) : null,
+          };
 
           // 获取参考图URL（可选，多张取全部）
           const imageAttachments = referenceImageField ? await getAttachmentTempUrls(table, referenceImageField, recordId) : [];
-          console.log(`处理记录 ${recordId}，提示词: ${prompt}，参考图数量: ${imageAttachments.length}`);
+          console.log(`处理记录 ${recordId}，提示词: ${prompt.substring(0, 50)}...，参考图数量: ${imageAttachments.length}`);
           
           // 先将图片上传到 OSS，获取公网可访问的 URL
           const imageUrls: string[] = [];
@@ -466,11 +618,11 @@ export default function AIGenerate() {
             let uploadSuccessCount = 0;
             let uploadFailCount = 0;
             
-            for (let i = 0; i < imageAttachments.length; i++) {
-              const attachment = imageAttachments[i];
+            for (let j = 0; j < imageAttachments.length; j++) {
+              const attachment = imageAttachments[j];
               try {
-                console.log(`上传图片 ${i + 1}/${imageAttachments.length}: ${attachment.name}`);
-                setStatus(`正在上传图片 ${i + 1}/${imageAttachments.length}...`);
+                console.log(`上传图片 ${j + 1}/${imageAttachments.length}: ${attachment.name}`);
+                setStatus(`正在上传图片 ${j + 1}/${imageAttachments.length}...`);
                 const ossUrl = await uploadToOSS(attachment.url, attachment.name, 'sora-images');
                 imageUrls.push(ossUrl);
                 uploadSuccessCount++;
@@ -479,7 +631,6 @@ export default function AIGenerate() {
                 uploadFailCount++;
                 console.error(`上传图片 ${attachment.name} 失败:`, error);
                 Toast.warning(`记录 ${recordId} 的图片 "${attachment.name}" 上传到 OSS 失败: ${error.message || '未知错误'}`);
-                // 继续处理其他图片，不中断流程
               }
             }
             
@@ -495,20 +646,12 @@ export default function AIGenerate() {
             }
             
             console.log(`✅ 成功上传 ${imageUrls.length}/${imageAttachments.length} 张图片到 OSS`);
-            console.log(`OSS URLs:`, imageUrls);
           }
 
-          // 调用 Apimart 生成任务
+          // 构建生成参数并调用 API
           setStatus(`正在提交生成任务...`);
-          const task = await createApimartTask({
-            model,
-            prompt,
-            duration: durationSec,
-            aspect_ratio,
-            private: false,
-            watermark: false,
-            image_urls: imageUrls.length > 0 ? imageUrls : undefined,
-          });
+          const payload = buildGenerationPayload(prompt, imageUrls, fieldValues);
+          const task = await createApimartTask(payload);
 
           // 写回任务ID与状态
           if (taskIdField) {
@@ -538,6 +681,7 @@ export default function AIGenerate() {
       setLoading(false);
       setProgress(0);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 更新任务状态并在完成后保存视频附件
@@ -699,22 +843,46 @@ export default function AIGenerate() {
       >
         <Form.Slot label="使用说明">
           <div style={{ marginBottom: '1rem', fontSize: '14px', color: '#666', lineHeight: '1.6' }}>
-            <div><strong>功能说明：</strong> 基于 Sora2 AI 模型，根据文本提示词和参考图片自动生成视频内容，支持自定义视频时长和横竖屏比例</div>
+            <div><strong>功能说明：</strong> 基于 Sora2 AI 模型，根据文本提示词和参考图片自动生成视频内容</div>
+            
             <div style={{ marginTop: '0.5rem' }}>
-              <strong>操作步骤：</strong>
-              <div style={{ marginLeft: '1rem', marginTop: '0.25rem' }}>
-                <div>1. 在数据表中填写&ldquo;文本提示词&rdquo;字段（必填）</div>
-                <div>2. 可选：上传&ldquo;参考图&rdquo;附件，AI 将参考图片生成视频</div>
-                <div>3. 可选：设置&ldquo;横竖屏&rdquo;和&ldquo;生成时长&rdquo;字段</div>
-                <div>4. 点击&ldquo;生成Sora2视频&rdquo;按钮提交生成任务</div>
-                <div>5. 使用&ldquo;更新任务状态&rdquo;按钮查询生成进度并下载完成的视频</div>
+              <strong>📋 必填字段：</strong>
+              <div style={{ marginLeft: '1rem', marginTop: '0.25rem', color: '#ff4d4f' }}>
+                <div>• <strong>文本提示词</strong> - 视频生成的文本描述（支持 @角色名 引用已创建的角色）</div>
               </div>
             </div>
+
+            <div style={{ marginTop: '0.5rem' }}>
+              <strong>📝 可选字段：</strong>
+              <div style={{ marginLeft: '1rem', marginTop: '0.25rem' }}>
+                <div>• <strong>参考图</strong>（附件）- 参考图片，用于图生视频</div>
+                <div>• <strong>横竖屏</strong> - 视频比例：横屏(16:9) 或 竖屏(9:16)</div>
+                <div>• <strong>生成时长</strong> - 视频时长：10秒/15秒（sora-2）或 25秒（sora-2-pro）</div>
+                <div>• <strong>视频风格</strong> - 感恩节/漫画/新闻/自拍/复古/动漫</div>
+                <div>• <strong>添加水印</strong> - 是否添加 Sora 官方水印（是/否）</div>
+                <div>• <strong>生成缩略图</strong> - 是否生成视频缩略图（是/否）</div>
+                <div>• <strong>隐私模式</strong> - 是否开启隐私模式（是/否）</div>
+                <div>• <strong>故事板</strong> - 是否使用故事板模式（是/否）</div>
+                <div>• <strong>角色视频URL</strong> - 参考视频中的角色 URL</div>
+                <div>• <strong>角色时间戳</strong> - 角色出现的时间范围（如：1,3）</div>
+                <div>• <strong>是否生成Sora</strong> - 控制该记录是否参与生成（是/否）</div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '0.5rem' }}>
+              <strong>📤 输出字段（自动创建）：</strong>
+              <div style={{ marginLeft: '1rem', marginTop: '0.25rem' }}>
+                <div>• <strong>Sora2视频</strong>（附件）- 生成的视频文件</div>
+                <div>• <strong>任务ID</strong> - 生成任务的唯一标识</div>
+                <div>• <strong>生成状态</strong> - 任务状态：submitted/processing/completed/failed</div>
+              </div>
+            </div>
+
             <div style={{ marginTop: '0.5rem', color: '#1890ff', fontWeight: '500' }}>
-              💡 提示：生成任务提交后会返回任务ID，视频生成需要一定时间。请定期点击&ldquo;更新任务状态&rdquo;查询进度，完成后会自动下载并保存到&ldquo;Sora2视频&rdquo;附件字段。
+              💡 提示：生成任务提交后会返回任务ID，视频生成需要一定时间。请定期点击&ldquo;更新任务状态&rdquo;查询进度，完成后会自动下载并保存视频。
             </div>
             <div style={{ marginTop: '0.5rem', color: '#fa8c16', fontWeight: '500' }}>
-              ⚠️ 注意：如果记录已有任务ID，将跳过生成；如果生成状态为&ldquo;已完成&rdquo;且已有视频附件，将跳过状态更新
+              ⚠️ 注意：生成的视频链接有效期为24小时，请及时更新状态保存视频。
             </div>
           </div>
         </Form.Slot>
