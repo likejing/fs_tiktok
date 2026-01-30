@@ -1,9 +1,9 @@
 'use client'
-import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
+import { bitable, ITableMeta, FieldType, IAttachmentField } from "@lark-base-open/js-sdk";
 import { Button, Form, Toast, Typography, Space, Progress } from '@douyinfe/semi-ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
-import { TIKTOK_VIDEO_LIST_API, TIKTOK_REFRESH_TOKEN_API } from '../../../lib/constants';
+import { TIKTOK_VIDEO_LIST_API, TIKTOK_REFRESH_TOKEN_API, PROXY_DOWNLOAD_API } from '../../../lib/constants';
 import { 
   getFieldStringValue, 
   getFieldTypeByValue, 
@@ -28,8 +28,113 @@ const VIDEO_FIELD_MAPPING: Record<string, string> = {
 };
 
 // 需要作为 URL 类型处理的字段（会创建 URL 类型字段，可点击预览）
-// 注意：飞书多维表格附件字段不支持直接使用外部 URL，所以 thumbnail_url 也作为 URL 类型保存
 const URL_FIELDS = ['share_url', 'embed_url', 'thumbnail_url'];
+
+// 附件字段映射：API 字段名 -> 附件字段名
+const ATTACHMENT_FIELD_MAPPING: Record<string, string> = {
+  'thumbnail_url': 'thumbnail_url附件'
+};
+
+/**
+ * 下载图片并转换为 File 对象
+ * @param imageUrl 图片 URL
+ * @param fileName 文件名
+ * @returns File 对象或 null
+ */
+async function downloadImageAsFile(imageUrl: string, fileName: string): Promise<File | null> {
+  try {
+    console.log(`📥 开始下载图片: ${imageUrl}`);
+    
+    // 使用代理下载接口绕过跨域问题
+    const response = await fetch(PROXY_DOWNLOAD_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url: imageUrl }),
+    });
+    
+    if (!response.ok) {
+      console.error(`下载图片失败: HTTP ${response.status}`);
+      return null;
+    }
+    
+    const blob = await response.blob();
+    
+    // 确定文件类型
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const extension = contentType.includes('png') ? '.png' : 
+                     contentType.includes('gif') ? '.gif' : 
+                     contentType.includes('webp') ? '.webp' : '.jpg';
+    
+    // 创建 File 对象
+    const file = new File([blob], fileName + extension, { type: contentType });
+    console.log(`✅ 图片下载成功: ${file.name} (${file.size} bytes)`);
+    
+    return file;
+  } catch (error) {
+    console.error(`下载图片失败:`, error);
+    return null;
+  }
+}
+
+/**
+ * 上传附件到飞书多维表格附件字段
+ * @param table 数据表对象
+ * @param attachmentFieldName 附件字段名
+ * @param recordId 记录 ID
+ * @param file 文件对象
+ */
+async function uploadAttachmentToField(
+  table: any, 
+  attachmentFieldName: string, 
+  recordId: string, 
+  file: File
+): Promise<boolean> {
+  try {
+    // 获取附件字段
+    let attachmentField: IAttachmentField | null = null;
+    try {
+      attachmentField = await table.getFieldByName<IAttachmentField>(attachmentFieldName);
+    } catch (e) {
+      console.warn(`附件字段 ${attachmentFieldName} 不存在`);
+      return false;
+    }
+    
+    if (!attachmentField) {
+      console.warn(`附件字段 ${attachmentFieldName} 未找到`);
+      return false;
+    }
+    
+    // 使用官方 API 上传文件
+    console.log(`📤 上传附件到 ${attachmentFieldName}...`);
+    const tokens = await bitable.base.batchUploadFile([file]);
+    
+    if (!tokens || tokens.length === 0) {
+      console.error(`上传文件失败: 未获取到 token`);
+      return false;
+    }
+    
+    console.log(`✅ 文件上传成功, token: ${tokens[0]}`);
+    
+    // 设置附件字段值
+    const attachmentValue = [{
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      token: tokens[0],
+      timeStamp: Date.now()
+    }];
+    
+    await attachmentField.setValue(recordId, attachmentValue);
+    console.log(`✅ 附件字段 ${attachmentFieldName} 设置成功`);
+    
+    return true;
+  } catch (error) {
+    console.error(`上传附件到 ${attachmentFieldName} 失败:`, error);
+    return false;
+  }
+}
 
 
 // 高光分析算法配置
@@ -763,13 +868,33 @@ export default function VideoManagement() {
                   console.log(`📝 准备保存 ${Object.keys(validFields).length} 个字段`);
 
                   // 保存或更新记录
+                  let savedRecordId: string;
                   if (existingRecordId) {
                     await videoTableRef.setRecord(existingRecordId, { fields: validFields });
+                    savedRecordId = existingRecordId;
                     console.log(`✅ 更新视频 ${video.item_id}`);
                   } else {
-                    await videoTableRef.addRecord({ fields: validFields });
+                    const newRecord = await videoTableRef.addRecord({ fields: validFields });
+                    savedRecordId = newRecord?.recordId || newRecord;
                     console.log(`✅ 新增视频 ${video.item_id}`);
                     totalVideos++;
+                  }
+
+                  // 处理附件字段：将 thumbnail_url 下载并上传到 thumbnail_url附件 字段
+                  if (savedRecordId && video.thumbnail_url) {
+                    try {
+                      const attachmentFieldName = ATTACHMENT_FIELD_MAPPING['thumbnail_url'];
+                      if (attachmentFieldName) {
+                        console.log(`🖼️ 处理封面附件: ${video.thumbnail_url}`);
+                        const file = await downloadImageAsFile(video.thumbnail_url, `thumbnail_${video.item_id}`);
+                        if (file) {
+                          await uploadAttachmentToField(videoTableRef, attachmentFieldName, savedRecordId, file);
+                        }
+                      }
+                    } catch (attachmentError) {
+                      console.warn(`处理视频 ${video.item_id} 封面附件时出错:`, attachmentError);
+                      // 附件上传失败不影响主流程
+                    }
                   }
                 } catch (e: any) {
                   console.error(`处理视频 ${video.item_id} 时出错:`, e);
