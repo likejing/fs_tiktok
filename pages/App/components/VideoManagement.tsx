@@ -95,7 +95,15 @@ async function uploadAttachmentToField(
     // 获取附件字段
     let attachmentField: IAttachmentField | null = null;
     try {
-      attachmentField = await table.getFieldByName<IAttachmentField>(attachmentFieldName);
+      const field = await table.getFieldByName(attachmentFieldName);
+      // 检查字段类型是否为附件
+      const fieldType = await field?.getType?.();
+      if (fieldType === FieldType.Attachment) {
+        attachmentField = field as IAttachmentField;
+      } else {
+        console.warn(`字段 ${attachmentFieldName} 不是附件类型`);
+        return false;
+      }
     } catch (e) {
       console.warn(`附件字段 ${attachmentFieldName} 不存在`);
       return false;
