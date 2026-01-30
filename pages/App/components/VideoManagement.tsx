@@ -878,14 +878,19 @@ export default function VideoManagement() {
                   console.log(`📝 准备保存 ${Object.keys(validFields).length} 个字段`);
 
                   // 保存或更新记录
-                  let savedRecordId: string;
+                  let savedRecordId: string | undefined;
                   if (existingRecordId) {
                     await videoTableRef.setRecord(existingRecordId, { fields: validFields });
                     savedRecordId = existingRecordId;
                     console.log(`✅ 更新视频 ${video.item_id}`);
                   } else {
                     const newRecord = await videoTableRef.addRecord({ fields: validFields });
-                    savedRecordId = newRecord?.recordId || newRecord;
+                    // addRecord 返回类型可能是 string 或 { recordId: string }
+                    if (typeof newRecord === 'string') {
+                      savedRecordId = newRecord;
+                    } else if (newRecord && typeof newRecord === 'object' && 'recordId' in newRecord) {
+                      savedRecordId = (newRecord as { recordId: string }).recordId;
+                    }
                     console.log(`✅ 新增视频 ${video.item_id}`);
                     totalVideos++;
                   }
