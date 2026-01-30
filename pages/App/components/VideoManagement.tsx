@@ -646,11 +646,15 @@ export default function VideoManagement() {
               const videos = result.data.videos;
               console.log(`账号 ${i + 1} 获取到 ${videos.length} 个视频`);
 
+              // 刷新 videoTable 引用和字段列表，避免 "table not found" 错误
+              const currentVideoTable = await bitable.base.getTableById(videoTableId);
+              videoFieldList = await currentVideoTable.getFieldList();
+
               // 处理每个视频
               for (const video of videos) {
                 try {
                   // 检查视频是否已存在（通过 item_id）
-                  const existingRecordId = await findVideoByItemId(videoTable, itemIdField, video.item_id);
+                  const existingRecordId = await findVideoByItemId(currentVideoTable, itemIdField, video.item_id);
 
                   // 准备要保存的字段数据
                   const fields: Record<string, any> = {};
@@ -679,7 +683,7 @@ export default function VideoManagement() {
                     // 保存高光帧（格式：n秒, n秒）
                     if (highlightFrames.length > 0) {
                       const highlightFramesField = await findOrCreateField(
-                        videoTable,
+                        currentVideoTable,
                         videoFieldList,
                         'highlight_frames',
                         FieldType.Text
@@ -697,7 +701,7 @@ export default function VideoManagement() {
                     // 保存高光片段（格式：n~m秒, n~m秒）
                     if (highlightSegments.length > 0) {
                       const highlightSegmentsField = await findOrCreateField(
-                        videoTable,
+                        currentVideoTable,
                         videoFieldList,
                         'highlight_segments',
                         FieldType.Text
@@ -751,7 +755,7 @@ export default function VideoManagement() {
                         // 查找或创建附件字段（字段名带"附件"后缀）
                         const attachmentFieldName = `${fieldName}附件`;
                         let attachmentField = await findOrCreateField(
-                          videoTable,
+                          currentVideoTable,
                           videoFieldList,
                           attachmentFieldName,
                           FieldType.Attachment
@@ -767,7 +771,7 @@ export default function VideoManagement() {
 
                         // 同时保存原始 URL 到 URL 类型字段
                         let urlField = await findOrCreateField(
-                          videoTable,
+                          currentVideoTable,
                           videoFieldList,
                           fieldName,
                           FieldType.Url
@@ -783,7 +787,7 @@ export default function VideoManagement() {
                       
                       // 查找或创建字段（URL 字段创建为 URL 类型，其他按值类型）
                       let field = await findOrCreateField(
-                        videoTable,
+                        currentVideoTable,
                         videoFieldList,
                         fieldName,
                         isUrlField ? FieldType.Url : getFieldTypeByValue(fieldValue)
@@ -820,11 +824,11 @@ export default function VideoManagement() {
                   // 保存或更新记录
                   let recordId: string;
                   if (existingRecordId) {
-                    await videoTable.setRecord(existingRecordId, { fields });
+                    await currentVideoTable.setRecord(existingRecordId, { fields });
                     recordId = existingRecordId;
                     console.log(`✅ 更新视频 ${video.item_id}`);
                   } else {
-                    const newRecordId = await videoTable.addRecord({ fields });
+                    const newRecordId = await currentVideoTable.addRecord({ fields });
                     recordId = newRecordId as string;
                     console.log(`✅ 新增视频 ${video.item_id}`);
                     totalVideos++;
@@ -833,7 +837,7 @@ export default function VideoManagement() {
                   // 处理附件字段（需要在记录创建/更新后设置）
                   for (const { fieldId, ossUrl } of pendingAttachments) {
                     try {
-                      const attachmentField = await videoTable.getFieldById(fieldId);
+                      const attachmentField = await currentVideoTable.getFieldById(fieldId);
                       // 使用 bitable SDK 的方式设置附件
                       // 附件字段需要通过 URL 方式设置
                       await (attachmentField as any).setValue(recordId, [{
@@ -846,7 +850,7 @@ export default function VideoManagement() {
                       console.warn(`设置附件字段失败:`, attachError);
                       // 如果设置附件失败，尝试使用 setRecord 方式
                       try {
-                        await videoTable.setRecord(recordId, {
+                        await currentVideoTable.setRecord(recordId, {
                           fields: {
                             [fieldId]: [{
                               name: `thumbnail_${video.item_id}.jpg`,
