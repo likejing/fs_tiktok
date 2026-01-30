@@ -32,11 +32,6 @@ const headerStyle = {
   padding: '0 4px',
 };
 
-// 标签页样式
-const tabsStyle = {
-  '--semi-color-primary': 'var(--semi-color-primary)',
-};
-
 export default function App() {
   return (
     <main style={mainStyle}>
@@ -61,7 +56,6 @@ export default function App() {
       <Tabs 
         type="line" 
         defaultActiveKey="account"
-        style={tabsStyle}
         tabBarStyle={{ 
           padding: '0 4px',
           marginBottom: 16,

@@ -982,6 +982,7 @@ export default function MaterialPublish() {
       setLoading(false);
       setProgress(0);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 批量更新发布状态
@@ -1234,6 +1235,7 @@ export default function MaterialPublish() {
       setUpdatingStatus(false);
       setProgress(0);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1291,7 +1293,7 @@ export default function MaterialPublish() {
         <div style={styles.infoCard}>
           <Text size="small" style={{ color: 'var(--semi-color-text-1)', fontWeight: 500 }}>发布条件</Text>
           <div style={{ marginTop: 8 }}>
-            <div style={styles.stepItem}>发布状态 = "等待发布" 且 发布时间 ≤ 当前时间</div>
+            <div style={styles.stepItem}>发布状态 = &quot;等待发布&quot; 且 发布时间 ≤ 当前时间</div>
             <div style={styles.stepItem}>系统自动检查并刷新过期 Token</div>
             <div style={styles.stepItem}>自动上传视频到 OSS 并发布到 TikTok</div>
           </div>
