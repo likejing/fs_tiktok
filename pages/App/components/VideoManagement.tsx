@@ -658,7 +658,9 @@ export default function VideoManagement() {
                   await refreshTokenIfNeeded();
                 }
               } else {
-                console.log(`⚠️ Token失效时间字段为空或无效，无法判断是否失效`);
+                // Token失效时间为空，尝试刷新Token并补全失效时间
+                console.log(`⚠️ Token失效时间字段为空，尝试刷新Token并补全...`);
+                await refreshTokenIfNeeded();
               }
             } catch (e) {
               console.warn(`检查Token失效时间失败:`, e);

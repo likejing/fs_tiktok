@@ -7,17 +7,25 @@ export const config = {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'GET') {
-    res.status(405).json({ error: 'Method not allowed' })
-    return
+  // 支持 GET 和 POST 方法
+  let targetUrl: string | undefined;
+
+  if (req.method === 'GET') {
+    const { url } = req.query;
+    targetUrl = typeof url === 'string' ? url : undefined;
+  } else if (req.method === 'POST') {
+    targetUrl = req.body?.url;
+  } else {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
   }
 
-  const { url } = req.query
-
-  if (!url || typeof url !== 'string') {
-    res.status(400).json({ error: 'Missing url parameter' })
-    return
+  if (!targetUrl) {
+    res.status(400).json({ error: 'Missing url parameter' });
+    return;
   }
+
+  const url = targetUrl;
 
   try {
     const controller = new AbortController()
