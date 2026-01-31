@@ -5,7 +5,7 @@ import { IconImage, IconRefresh } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { getFieldStringValue, findOrCreateField } from '../../../lib/fieldUtils';
-import { APIMART_NANO_IMAGE_API, APIMART_TASK_STATUS_API, UPLOAD_TO_OSS_API } from '../../../lib/constants';
+import { APIMART_NANO_IMAGE_API, APIMART_TASK_STATUS_API, UPLOAD_TO_OSS_API, PROXY_DOWNLOAD_API } from '../../../lib/constants';
 
 const { Title, Text } = Typography;
 
@@ -23,6 +23,9 @@ const NANO_CONFIG = {
     n: 1,
   }
 };
+
+// 默认选中的数据表名称（若多维表格中存在同名表则自动选中）
+const DEFAULT_TABLE_NAME = 'Nano图像生成';
 
 // 表格字段配置
 const FIELD_CONFIG = {
@@ -447,24 +450,43 @@ export default function NanoGenerate() {
               updateFields[taskStatusField.id] = '已完成';
               completedCount++;
 
-              // 如果有图像URL，下载并上传为附件
-              const imageUrl = taskData.output?.image_url || taskData.output?.url || 
-                              (Array.isArray(taskData.output) && taskData.output[0]?.url);
-              
-              if (imageUrl && nanoImageField) {
+              // 从任务结果中提取图像 URL（Apimart 实际返回: data.result.images[0].url 为数组 ["https://..."]）
+              const rawUrl =
+                (Array.isArray(taskData.result?.images) && taskData.result.images[0]?.url) ||
+                taskData.output?.image_url ||
+                taskData.output?.url ||
+                taskData.output?.data?.url ||
+                (Array.isArray(taskData.output) && taskData.output[0]?.url) ||
+                (Array.isArray(taskData.output?.images) && taskData.output.images[0]) ||
+                taskData.result?.output?.url ||
+                taskData.result?.url;
+              const imageUrl = Array.isArray(rawUrl) ? rawUrl[0] : rawUrl;
+
+              if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('http') && nanoImageField) {
                 try {
-                  // 上传到OSS
-                  const ossUrl = await uploadToOSS(imageUrl, `nano_${Date.now()}.png`, 'nano-output');
-                  
-                  // 设置为附件
-                  const attachmentField = await table.getFieldById(nanoImageField.id);
-                  await attachmentField.setValue(record.recordId, [{
-                    url: ossUrl,
-                    name: `nano_${taskId}.png`
-                  }]);
-                } catch (e) {
+                  // 通过代理下载图片（避免 CORS），得到 Blob 后转为 File，由飞书 SDK 上传并写入附件
+                  const proxyUrl = `${PROXY_DOWNLOAD_API}?url=${encodeURIComponent(imageUrl)}`;
+                  const controller = new AbortController();
+                  const timeoutId = setTimeout(() => controller.abort(), 60000);
+                  const imgResponse = await fetch(proxyUrl, { signal: controller.signal });
+                  clearTimeout(timeoutId);
+
+                  if (imgResponse.ok) {
+                    const blob = await imgResponse.blob();
+                    const fileName = `nano_${taskId}.${blob.type?.includes('png') ? 'png' : 'jpg'}`;
+                    const file = new File([blob], fileName, { type: blob.type || 'image/png' });
+                    const attachmentField = await table.getFieldById(nanoImageField.id);
+                    await attachmentField.setValue(record.recordId, file);
+                    console.log(`记录 ${record.recordId} Nano 图像附件已写入: ${fileName}`);
+                  } else {
+                    console.warn(`下载 Nano 图像失败: ${imgResponse.status} ${imageUrl}`);
+                  }
+                } catch (e: any) {
                   console.warn('保存图像附件失败:', e);
+                  Toast.warning(`记录 ${record.recordId} 图像附件保存失败: ${e?.message || '未知错误'}`);
                 }
+              } else if (imageUrl && nanoImageField) {
+                console.warn('Nano 图像 URL 格式无效或非 http:', imageUrl);
               }
             } else if (taskStatus === 'failed' || taskStatus === 'error') {
               updateFields[taskStatusField.id] = `失败: ${taskData.error || '未知错误'}`;
@@ -504,6 +526,19 @@ export default function NanoGenerate() {
       setTableMetaList(metaList);
     });
   }, []);
+
+  // 表列表加载后，默认选中名为「Nano图像生成」的数据表
+  useEffect(() => {
+    if (!Array.isArray(tableMetaList) || tableMetaList.length === 0) return;
+    const defaultTable = tableMetaList.find((t) => t.name === DEFAULT_TABLE_NAME);
+    if (!defaultTable) return;
+    const timer = setTimeout(() => {
+      if (formApi.current && !formApi.current.getValue('dataTable')) {
+        formApi.current.setValue('dataTable', defaultTable.id);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [tableMetaList]);
 
   return (
     <div style={styles.container}>

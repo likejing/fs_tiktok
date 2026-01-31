@@ -11,6 +11,7 @@ import {
   IconImage
 } from '@douyinfe/semi-icons';
 
+import { trackEvent, AnalyticsEvents } from '../../lib/analytics';
 import AccountManagement from './components/AccountManagement';
 import VideoManagement from './components/VideoManagement';
 import CommentManagement from './components/CommentManagement';
@@ -58,6 +59,7 @@ export default function App() {
       <Tabs 
         type="line" 
         defaultActiveKey="account"
+        onChange={(key) => trackEvent(AnalyticsEvents.TAB_SWITCH, { tab: String(key) })}
         tabBarStyle={{ 
           padding: '0 4px',
           marginBottom: 16,
