@@ -1288,7 +1288,7 @@ export default function MaterialPublish() {
     sectionTitle: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 },
     infoCard: { backgroundColor: 'var(--semi-color-fill-0)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 },
     stepItem: { marginBottom: 4, color: 'var(--semi-color-text-2)', fontSize: 13, lineHeight: '20px' },
-    buttonGroup: { display: 'flex', gap: 12, marginTop: 16 },
+    buttonGroup: { display: 'flex', gap: 12, marginTop: 16, flexWrap: 'wrap' as const },
     progressContainer: { marginTop: 16, marginBottom: 8 },
   };
 
@@ -1344,12 +1344,13 @@ export default function MaterialPublish() {
             optionList={accountTableMetaList?.map(({ name, id }) => ({ label: name, value: id }))}
           />
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <Switch
               checked={scheduledAutoPublishEnabled}
               onChange={setScheduledAutoPublishEnabled}
+              style={{ flexShrink: 0 }}
             />
-            <Text size="small" type="tertiary">
+            <Text size="small" type="tertiary" style={{ flex: '1 1 0', minWidth: 0, wordBreak: 'break-word' }}>
               定时自动发布：开启后每 10 分钟自动检查并发布已到期的素材（需保持本页面或边栏打开）
             </Text>
           </div>
@@ -1375,7 +1376,7 @@ export default function MaterialPublish() {
               disabled={updatingStatus}
               icon={<IconSend />}
               className="btn-primary"
-              style={{ flex: 1 }}
+              style={{ flex: '1 1 80px', minWidth: 0 }}
             >
               自动发布
             </Button>
@@ -1385,7 +1386,7 @@ export default function MaterialPublish() {
               disabled={loading}
               icon={<IconRefresh2 />}
               className="btn-secondary"
-              style={{ flex: 1 }}
+              style={{ flex: '1 1 80px', minWidth: 0 }}
             >
               更新状态
             </Button>
