@@ -1,6 +1,6 @@
 'use client'
 import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
-import { Button, Form, Toast, Typography, Space, Progress, Card, Banner } from '@douyinfe/semi-ui';
+import { Button, Form, Toast, Typography, Space, Progress, Card, Banner, Switch } from '@douyinfe/semi-ui';
 import { IconSend, IconRefresh2 } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
@@ -16,6 +16,7 @@ export default function MaterialPublish() {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('');
+  const [scheduledAutoPublishEnabled, setScheduledAutoPublishEnabled] = useState(false);
   const formApi = useRef<BaseFormApi>();
 
   // 获取附件临时下载链接
@@ -1257,6 +1258,27 @@ export default function MaterialPublish() {
     });
   }, []);
 
+  // 定时自动发布：开启后每隔一段时间检查并发布已到期的素材（需保持本页或边栏打开）
+  const runScheduledPublish = useCallback(() => {
+    if (loading || updatingStatus) return;
+    const vals = formApi.current?.getValues();
+    if (vals?.materialTable && vals?.accountTable) {
+      handleAutoPublish({ materialTable: vals.materialTable, accountTable: vals.accountTable });
+    }
+  }, [loading, updatingStatus, handleAutoPublish]);
+
+  useEffect(() => {
+    if (!scheduledAutoPublishEnabled) return;
+    const intervalMs = 10 * 60 * 1000; // 每 10 分钟
+    const firstRunMs = 60 * 1000;       // 开启后 1 分钟首次检查
+    const firstTimer = setTimeout(() => runScheduledPublish(), firstRunMs);
+    const id = setInterval(runScheduledPublish, intervalMs);
+    return () => {
+      clearTimeout(firstTimer);
+      clearInterval(id);
+    };
+  }, [scheduledAutoPublishEnabled, runScheduledPublish]);
+
   // 样式常量 - 遵循 Base 开放设计规范
   const styles = {
     container: { padding: '0 4px' },
@@ -1321,6 +1343,16 @@ export default function MaterialPublish() {
             rules={[{ required: true, message: '请选择账号列表' }]}
             optionList={accountTableMetaList?.map(({ name, id }) => ({ label: name, value: id }))}
           />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+            <Switch
+              checked={scheduledAutoPublishEnabled}
+              onChange={setScheduledAutoPublishEnabled}
+            />
+            <Text size="small" type="tertiary">
+              定时自动发布：开启后每 10 分钟自动检查并发布已到期的素材（需保持本页面或边栏打开）
+            </Text>
+          </div>
 
           {/* 进度显示 */}
           {(loading || updatingStatus) && (
