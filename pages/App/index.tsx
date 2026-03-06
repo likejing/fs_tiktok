@@ -1,14 +1,15 @@
 'use client'
 
 import { Tabs, Typography } from '@douyinfe/semi-ui';
-import { 
-  IconUserGroup, 
-  IconVideo, 
-  IconComment, 
-  IconSend, 
-  IconStar, 
+import {
+  IconUserGroup,
+  IconVideo,
+  IconComment,
+  IconSend,
+  IconStar,
   IconLink,
-  IconImage
+  IconImage,
+  IconUpload
 } from '@douyinfe/semi-icons';
 
 import { trackEvent, AnalyticsEvents } from '../../lib/analytics';
@@ -19,6 +20,7 @@ import MaterialPublish from './components/MaterialPublish';
 import AIGenerate from './components/AIGenerate';
 import SocialMediaFetch from './components/SocialMediaFetch';
 import NanoGenerate from './components/NanoGenerate';
+import SelfCommentPublish from './components/SelfCommentPublish';
 
 const { Title, Text } = Typography;
 
@@ -82,22 +84,29 @@ export default function App() {
           <VideoManagement />
         </Tabs.TabPane>
 
-        <Tabs.TabPane 
-          tab={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><IconComment size="small" />评论</span>} 
+        <Tabs.TabPane
+          tab={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><IconComment size="small" />评论</span>}
           itemKey="comment"
         >
-          <CommentManagement />
+          <Tabs type="line" defaultActiveKey="manage">
+            <Tabs.TabPane tab="评论管理" itemKey="manage">
+              <CommentManagement />
+            </Tabs.TabPane>
+            <Tabs.TabPane tab="自评论发布" itemKey="self">
+              <SelfCommentPublish />
+            </Tabs.TabPane>
+          </Tabs>
         </Tabs.TabPane>
 
-        <Tabs.TabPane 
-          tab={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><IconSend size="small" />发布</span>} 
+        <Tabs.TabPane
+          tab={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><IconSend size="small" />发布</span>}
           itemKey="material"
         >
           <MaterialPublish />
         </Tabs.TabPane>
 
-        <Tabs.TabPane 
-          tab={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><IconStar size="small" />AI</span>} 
+        <Tabs.TabPane
+          tab={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><IconStar size="small" />AI</span>}
           itemKey="ai"
         >
           <AIGenerate />

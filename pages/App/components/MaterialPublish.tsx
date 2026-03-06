@@ -1,7 +1,7 @@
 'use client'
 import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
-import { Button, Form, Toast, Typography, Space, Progress, Card, Banner, Switch } from '@douyinfe/semi-ui';
-import { IconSend, IconRefresh2 } from '@douyinfe/semi-icons';
+import { Button, Form, Toast, Typography, Space, Progress, Card, Banner, Switch, Upload } from '@douyinfe/semi-ui';
+import { IconSend, IconRefresh2, IconUpload } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { getFieldStringValue } from '../../../lib/fieldUtils';
@@ -17,6 +17,7 @@ export default function MaterialPublish() {
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('');
   const [scheduledAutoPublishEnabled, setScheduledAutoPublishEnabled] = useState(false);
+  const [batchFiles, setBatchFiles] = useState<Array<{ uid: string; name: string; size: number; file: File; status: 'pending' | 'uploading' | 'success' | 'error'; error?: string }>>([]);
   const formApi = useRef<BaseFormApi>();
 
   // 获取附件临时下载链接
@@ -67,6 +68,160 @@ export default function MaterialPublish() {
     } catch (error: any) {
       console.error('上传到OSS失败:', error);
       throw error;
+    }
+  };
+
+  // 处理批量上传选择的本地视频文件
+  const handleBatchFileChange = (fileList: any) => {
+    const newFiles = (fileList?.fileList || []).map((file: any) => ({
+      uid: file.uid,
+      name: file.name,
+      size: file.size,
+      file: file.fileInstance as File,
+      status: 'pending' as const,
+    }));
+    setBatchFiles(newFiles);
+  };
+
+  // 将本地视频批量上传到素材库表的「视频附件」字段
+  const handleBatchUploadToMaterial = async () => {
+    const values = formApi.current?.getValues() || {};
+    const materialTableId = values.materialTable;
+
+    if (!materialTableId) {
+      Toast.error('请先在上方选择「素材库表」');
+      return;
+    }
+
+    if (!batchFiles.length) {
+      Toast.warning('请先选择要上传的视频文件');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setProgress(0);
+      setStatus('开始批量上传视频到素材库...');
+
+      const materialTable = await bitable.base.getTableById(materialTableId);
+      let videoAttachmentField: any = null;
+
+      // 查找「视频附件」字段
+      try {
+        const fieldList = await materialTable.getFieldList();
+        for (const field of fieldList) {
+          try {
+            const name = await field.getName();
+            if (name === '视频附件') {
+              videoAttachmentField = field;
+              break;
+            }
+          } catch {
+            // ignore
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      if (!videoAttachmentField) {
+        try {
+          videoAttachmentField = await materialTable.getFieldByName('视频附件');
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!videoAttachmentField) {
+        Toast.error('素材库表中未找到「视频附件」字段，请先在表中创建该附件列');
+        return;
+      }
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      // 附件大小上限（保守按 200MB 处理，超过则直接提示并跳过）
+      const MAX_FILE_SIZE = 200 * 1024 * 1024;
+
+      for (let i = 0; i < batchFiles.length; i++) {
+        const item = batchFiles[i];
+        setProgress(Math.round(((i + 1) / batchFiles.length) * 100));
+        setStatus(`正在上传视频 ${i + 1}/${batchFiles.length}: ${item.name}`);
+
+        try {
+          // 大小预检查，避免命中 SDK 的 file size 异常
+          if (item.size > MAX_FILE_SIZE) {
+            throw new Error(`文件过大（${(item.size / 1024 / 1024).toFixed(1)}MB），请确保单个文件不超过 ${(MAX_FILE_SIZE / 1024 / 1024).toFixed(0)}MB`);
+          }
+
+          // 1. 新建一条素材记录（先创建空记录）
+          const newRecord = await materialTable.addRecord({ fields: {} });
+          let recordId: string | undefined;
+          if (typeof newRecord === 'string') {
+            recordId = newRecord;
+          } else if (newRecord && typeof newRecord === 'object' && 'recordId' in newRecord) {
+            recordId = (newRecord as { recordId: string }).recordId;
+          }
+
+          if (!recordId) {
+            throw new Error('创建素材记录失败，未获取到 recordId');
+          }
+
+          // 2. 使用多维表格官方接口上传文件并写入附件字段
+          // 对文件名做一次「瘦身」，避免命中 file name 过长限制
+          const safeName = item.name.length > 80 ? item.name.slice(-80) : item.name;
+          const uploadFile =
+            safeName === item.name
+              ? item.file
+              : new File([item.file], safeName, { type: item.file.type || 'video/mp4' });
+
+          const tokens = await bitable.base.batchUploadFile([uploadFile]);
+          if (!tokens || !tokens.length) {
+            throw new Error('上传文件失败：未获取到附件 token');
+          }
+
+          const attachmentField = await materialTable.getFieldById(videoAttachmentField.id);
+          const attachmentValue = [{
+            name: safeName,
+            size: item.size,
+            type: uploadFile.type || 'video/mp4',
+            token: tokens[0],
+            timeStamp: Date.now(),
+          }];
+
+          await attachmentField.setValue(recordId, attachmentValue);
+
+          setBatchFiles(prev =>
+            prev.map(f =>
+              f.uid === item.uid ? { ...f, status: 'success' } : f
+            )
+          );
+          successCount++;
+        } catch (e: any) {
+          console.error(`上传视频 ${item.name} 失败:`, e);
+          setBatchFiles(prev =>
+            prev.map(f =>
+              f.uid === item.uid ? { ...f, status: 'error', error: e?.message || '未知错误' } : f
+            )
+          );
+          errorCount++;
+        }
+      }
+
+      const msg = `批量上传完成：成功 ${successCount} 个，失败 ${errorCount} 个`;
+      if (errorCount === 0) {
+        Toast.success(msg);
+      } else {
+        Toast.warning(msg);
+      }
+      setStatus(msg);
+    } catch (error: any) {
+      console.error('批量上传视频到素材库失败:', error);
+      Toast.error(`批量上传失败: ${error?.message || '未知错误'}`);
+      setStatus(`批量上传失败: ${error?.message || '未知错误'}`);
+    } finally {
+      setLoading(false);
+      setProgress(0);
     }
   };
 
@@ -876,7 +1031,7 @@ export default function MaterialPublish() {
                       }
                     }
                     
-                    // 如果发布成功，保存post_ids（如果有）
+                    // 如果发布成功，保存post_ids和TikTok视频链接（如果有）
                     if (statusValue === 'PUBLISH_COMPLETE' && publishStatusData.post_ids && Array.isArray(publishStatusData.post_ids) && publishStatusData.post_ids.length > 0) {
                       // 查找或创建post_ids字段
                       let postIdsField: any = null;
@@ -891,7 +1046,7 @@ export default function MaterialPublish() {
                           // 忽略
                         }
                       }
-                      
+
                       if (postIdsField) {
                         try {
                           const postIdsValue = publishStatusData.post_ids.join(',');
@@ -899,6 +1054,53 @@ export default function MaterialPublish() {
                           console.log(`✅ 已保存 post_ids: ${postIdsValue}`);
                         } catch (e) {
                           console.warn(`保存 post_ids 失败:`, e);
+                        }
+                      }
+
+                      // 构建并保存TikTok视频链接
+                      const firstPostId = publishStatusData.post_ids[0];
+                      const tiktokVideoUrl = `https://www.tiktok.com/@user/video/${firstPostId}`;
+
+                      // 查找或创建TikTok视频链接字段
+                      let tiktokLinkField: any = null;
+                      for (const field of materialFieldList) {
+                        try {
+                          const fieldName = await field.getName();
+                          if (fieldName === 'TikTok视频链接' || fieldName === 'tiktok_video_url' || fieldName === 'tiktok_link') {
+                            tiktokLinkField = field;
+                            break;
+                          }
+                        } catch (e) {
+                          // 忽略
+                        }
+                      }
+
+                      if (!tiktokLinkField) {
+                        // 尝试通过名称获取
+                        try {
+                          tiktokLinkField = await materialTable.getFieldByName('TikTok视频链接');
+                        } catch (e) {
+                          // 字段不存在，尝试创建
+                          try {
+                            const newField = await materialTable.addField({
+                              type: FieldType.Text,
+                              name: 'TikTok视频链接'
+                            }) as any;
+                            const fieldId = typeof newField === 'string' ? newField : newField.id;
+                            tiktokLinkField = typeof newField === 'string' ? null : newField;
+                            console.log(`✅ 已创建 TikTok视频链接 字段`);
+                          } catch (createError) {
+                            console.warn(`创建 TikTok视频链接 字段失败:`, createError);
+                          }
+                        }
+                      }
+
+                      if (tiktokLinkField) {
+                        try {
+                          await materialTable.setCellValue(tiktokLinkField.id, record.recordId, tiktokVideoUrl);
+                          console.log(`✅ 已保存 TikTok视频链接: ${tiktokVideoUrl}`);
+                        } catch (e) {
+                          console.warn(`保存 TikTok视频链接 失败:`, e);
                         }
                       }
                     }
@@ -1197,7 +1399,7 @@ export default function MaterialPublish() {
               errorCount++;
             }
 
-            // 如果发布成功，保存post_ids（如果有）
+            // 如果发布成功，保存post_ids和TikTok视频链接（如果有）
             if (statusValue === 'PUBLISH_COMPLETE' && publishStatusData.post_ids && Array.isArray(publishStatusData.post_ids) && publishStatusData.post_ids.length > 0) {
               if (postIdsField) {
                 try {
@@ -1206,6 +1408,53 @@ export default function MaterialPublish() {
                   console.log(`✅ 已保存 post_ids: ${postIdsValue}`);
                 } catch (e) {
                   console.warn(`保存 post_ids 失败:`, e);
+                }
+              }
+
+              // 构建并保存TikTok视频链接
+              const firstPostId = publishStatusData.post_ids[0];
+              const tiktokVideoUrl = `https://www.tiktok.com/@user/video/${firstPostId}`;
+
+              // 查找或创建TikTok视频链接字段
+              let tiktokLinkField: any = null;
+              for (const field of materialFieldList) {
+                try {
+                  const fieldName = await field.getName();
+                  if (fieldName === 'TikTok视频链接' || fieldName === 'tiktok_video_url' || fieldName === 'tiktok_link') {
+                    tiktokLinkField = field;
+                    break;
+                  }
+                } catch (e) {
+                  // 忽略
+                }
+              }
+
+              if (!tiktokLinkField) {
+                // 尝试通过名称获取
+                try {
+                  tiktokLinkField = await materialTable.getFieldByName('TikTok视频链接');
+                } catch (e) {
+                  // 字段不存在，尝试创建
+                  try {
+                    const newField = await materialTable.addField({
+                      type: FieldType.Text,
+                      name: 'TikTok视频链接'
+                    }) as any;
+                    const fieldId = typeof newField === 'string' ? newField : newField.id;
+                    tiktokLinkField = typeof newField === 'string' ? null : newField;
+                    console.log(`✅ 已创建 TikTok视频链接 字段`);
+                  } catch (createError) {
+                    console.warn(`创建 TikTok视频链接 字段失败:`, createError);
+                  }
+                }
+              }
+
+              if (tiktokLinkField) {
+                try {
+                  await materialTable.setCellValue(tiktokLinkField.id, record.recordId, tiktokVideoUrl);
+                  console.log(`✅ 已保存 TikTok视频链接: ${tiktokVideoUrl}`);
+                } catch (e) {
+                  console.warn(`保存 TikTok视频链接 失败:`, e);
                 }
               }
             }
@@ -1392,6 +1641,52 @@ export default function MaterialPublish() {
             </Button>
           </div>
         </Form>
+      </Card>
+
+      {/* 批量上传到素材库 */}
+      <Card style={styles.card} bodyStyle={styles.cardBody} bordered={false} shadows='hover'>
+        <div style={styles.sectionTitle}>
+          <IconUpload style={{ color: 'var(--semi-color-primary)' }} />
+          <Text strong style={{ color: 'var(--semi-color-text-0)' }}>批量上传到素材库</Text>
+        </div>
+
+        <Space vertical align="start" style={{ width: '100%' }}>
+          <Text size="small" type="tertiary">
+            从本地选择多个视频文件，系统会为每个视频在当前「素材库表」中创建一条新记录，并写入「视频附件」列，后续可配合自动发布使用。
+          </Text>
+
+          <Upload
+            action=""
+            accept="video/*"
+            multiple
+            beforeUpload={() => false}
+            onChange={handleBatchFileChange}
+            style={{ marginTop: 8 }}
+          >
+            <Button icon={<IconUpload />} theme="light">
+              选择视频文件（可多选）
+            </Button>
+          </Upload>
+
+          {batchFiles.length > 0 && (
+            <Text size="small" type="tertiary">
+              已选择 {batchFiles.length} 个视频文件
+            </Text>
+          )}
+
+          <div style={styles.buttonGroup}>
+            <Button
+              onClick={handleBatchUploadToMaterial}
+              loading={loading}
+              disabled={loading || updatingStatus || batchFiles.length === 0}
+              icon={<IconUpload />}
+              className="btn-primary"
+              style={{ flex: '1 1 80px', minWidth: 0 }}
+            >
+              批量上传到素材库
+            </Button>
+          </div>
+        </Space>
       </Card>
 
       {/* 提示信息 */}

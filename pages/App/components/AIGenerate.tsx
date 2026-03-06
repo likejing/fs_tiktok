@@ -52,14 +52,16 @@ const FIELD_CONFIG = {
   optional: {
     referenceImage: ['参考图', 'reference_image', 'Image'],  // 参考图片（附件）
     orientation: ['横竖屏', 'orientation', 'Orientation'],  // 16:9 或 9:16
-    duration: ['生成时长', 'duration', 'Duration'],  // 视频时长
-    style: ['视频风格', 'style', 'Style'],  // 视频风格
-    watermark: ['添加水印', 'watermark', 'Watermark'],  // 是否添加水印
-    thumbnail: ['生成缩略图', 'thumbnail', 'Thumbnail'],  // 是否生成缩略图
-    privateMode: ['隐私模式', 'private', 'Private'],  // 是否开启隐私模式
-    storyboard: ['故事板', 'storyboard', 'Storyboard'],  // 是否使用故事板
-    characterUrl: ['角色视频URL', 'character_url', 'CharacterUrl'],  // 参考视频角色URL
-    characterTimestamps: ['角色时间戳', 'character_timestamps', 'CharacterTimestamps'],  // 角色出现时间戳
+    duration: ['生成时长', 'duration', 'Duration'],  // 视频时长（Sora2）
+    style: ['视频风格', 'style', 'Style'],  // 视频风格（Sora2）
+    watermark: ['添加水印', 'watermark', 'Watermark'],  // 是否添加水印（Sora2）
+    thumbnail: ['生成缩略图', 'thumbnail', 'Thumbnail'],  // 是否生成缩略图（Sora2）
+    privateMode: ['隐私模式', 'private', 'Private'],  // 是否开启隐私模式（Sora2）
+    storyboard: ['故事板', 'storyboard', 'Storyboard'],  // 是否使用故事板（Sora2）
+    characterUrl: ['角色视频URL', 'character_url', 'CharacterUrl'],  // 参考视频角色URL（Sora2）
+    characterTimestamps: ['角色时间戳', 'character_timestamps', 'CharacterTimestamps'],  // 角色出现时间戳（Sora2）
+    videoModel: ['视频引擎', '视频模型', '生成模型', 'video_model', 'VideoModel'],  // Sora2 / Veo3 选择
+    resolution: ['视频分辨率', '清晰度', 'resolution', 'Resolution'],  // Veo3 分辨率
     shouldGenerate: ['是否生成Sora', 'should_generate', 'ShouldGenerate']  // 控制是否生成
   },
   // 输出字段
@@ -229,6 +231,23 @@ export default function AIGenerate() {
     return found?.value || undefined;
   };
 
+  // 解析视频引擎（Sora2 / Veo3）
+  const parseVideoEngine = (model: string | null): 'sora' | 'veo' => {
+    if (!model) return 'sora';
+    const v = model.toLowerCase().trim();
+    if (v.includes('veo')) return 'veo';
+    return 'sora';
+  };
+
+  // 解析 Veo3 分辨率
+  const parseVeoResolution = (resolution: string | null): '720p' | '1080p' | '4k' => {
+    if (!resolution) return '720p';
+    const r = resolution.toLowerCase().trim();
+    if (r.includes('4k')) return '4k';
+    if (r.includes('1080')) return '1080p';
+    return '720p';
+  };
+
   // 根据表格字段值构建生成参数
   interface GenerationFieldValues {
     orientation?: string | null;
@@ -240,6 +259,8 @@ export default function AIGenerate() {
     storyboard?: string | null;
     characterUrl?: string | null;
     characterTimestamps?: string | null;
+    videoModel?: string | null;
+    resolution?: string | null;
   }
 
   const buildGenerationPayload = (
@@ -247,17 +268,20 @@ export default function AIGenerate() {
     imageUrls: string[],
     fieldValues: GenerationFieldValues
   ) => {
-    // 解析字段值
-    const durationSec = parseDuration(fieldValues.duration || null);
-    const aspectRatio = parseAspectRatio(fieldValues.orientation || null);
-    const style = parseStyle(fieldValues.style || null);
-    const watermark = parseBooleanField(fieldValues.watermark || null);
-    const thumbnail = parseBooleanField(fieldValues.thumbnail || null);
-    const privateMode = parseBooleanField(fieldValues.privateMode || null);
-    const storyboard = parseBooleanField(fieldValues.storyboard || null);
+    // 解析视频引擎（默认使用 Sora2，可通过「视频引擎」字段切换 Veo3）
+    const engine = parseVideoEngine(fieldValues.videoModel || null);
 
-    // 根据时长选择模型：25秒需要 sora-2-pro
-    const model = durationSec >= 25 ? 'sora-2-pro' : 'sora-2';
+    // 解析通用字段
+    const durationSec = engine === 'veo'
+      ? 8
+      : parseDuration(fieldValues.duration || null);
+    const aspectRatio = parseAspectRatio(fieldValues.orientation || null);
+
+    // 根据引擎选择模型
+    const model =
+      engine === 'veo'
+        ? 'veo3.1-fast'
+        : (durationSec >= 25 ? 'sora-2-pro' : 'sora-2');
 
     // 构建必填参数
     const payload: Record<string, any> = {
@@ -265,41 +289,60 @@ export default function AIGenerate() {
       prompt
     };
 
-    // 添加可选参数（仅在有值时添加）
+    // 通用参数
     payload.duration = durationSec;
     payload.aspect_ratio = aspectRatio;
 
     if (imageUrls.length > 0) {
-      payload.image_urls = imageUrls;
+      // Veo3 最多支持 3 张参考图
+      payload.image_urls = engine === 'veo' ? imageUrls.slice(0, 3) : imageUrls;
     }
 
-    if (style) {
-      payload.style = style;
-    }
+    if (engine === 'sora') {
+      const style = parseStyle(fieldValues.style || null);
+      const watermark = parseBooleanField(fieldValues.watermark || null);
+      const thumbnail = parseBooleanField(fieldValues.thumbnail || null);
+      const privateMode = parseBooleanField(fieldValues.privateMode || null);
+      const storyboard = parseBooleanField(fieldValues.storyboard || null);
 
-    if (watermark !== undefined) {
-      payload.watermark = watermark;
-    }
+      if (style) {
+        payload.style = style;
+      }
 
-    if (thumbnail !== undefined) {
-      payload.thumbnail = thumbnail;
-    }
+      if (watermark !== undefined) {
+        payload.watermark = watermark;
+      }
 
-    if (privateMode !== undefined) {
-      payload.private = privateMode;
-    }
+      if (thumbnail !== undefined) {
+        payload.thumbnail = thumbnail;
+      }
 
-    if (storyboard !== undefined) {
-      payload.storyboard = storyboard;
-    }
+      if (privateMode !== undefined) {
+        payload.private = privateMode;
+      }
 
-    // 角色相关参数
-    if (fieldValues.characterUrl) {
-      payload.character_url = fieldValues.characterUrl.trim();
-    }
+      if (storyboard !== undefined) {
+        payload.storyboard = storyboard;
+      }
 
-    if (fieldValues.characterTimestamps) {
-      payload.character_timestamps = fieldValues.characterTimestamps.trim();
+      // 角色相关参数（仅 Sora2 支持）
+      if (fieldValues.characterUrl) {
+        payload.character_url = fieldValues.characterUrl.trim();
+      }
+
+      if (fieldValues.characterTimestamps) {
+        payload.character_timestamps = fieldValues.characterTimestamps.trim();
+      }
+    } else {
+      // Veo3 专属参数：分辨率与生成模式
+      payload.resolution = parseVeoResolution(fieldValues.resolution || null);
+      if (payload.image_urls && Array.isArray(payload.image_urls)) {
+        if (payload.image_urls.length === 2) {
+          payload.generation_type = 'frame';
+        } else if (payload.image_urls.length >= 3) {
+          payload.generation_type = 'reference';
+        }
+      }
     }
 
     console.log('📝 生成参数:', {
@@ -314,7 +357,9 @@ export default function AIGenerate() {
       private: payload.private,
       storyboard: payload.storyboard,
       character_url: payload.character_url ? '已设置' : undefined,
-      character_timestamps: payload.character_timestamps
+      character_timestamps: payload.character_timestamps,
+      resolution: payload.resolution,
+      generation_type: payload.generation_type
     });
 
     return payload;
@@ -479,6 +524,8 @@ export default function AIGenerate() {
       const storyboardField = await findFieldByNames(FIELD_CONFIG.optional.storyboard);
       const characterUrlField = await findFieldByNames(FIELD_CONFIG.optional.characterUrl);
       const characterTimestampsField = await findFieldByNames(FIELD_CONFIG.optional.characterTimestamps);
+      const videoModelField = await findFieldByNames(FIELD_CONFIG.optional.videoModel);
+      const resolutionField = await findFieldByNames(FIELD_CONFIG.optional.resolution);
       const shouldGenerateField = await findFieldByNames(FIELD_CONFIG.optional.shouldGenerate);
 
       // === 输出字段（自动创建如果不存在） ===
@@ -519,6 +566,8 @@ export default function AIGenerate() {
           '故事板': !!storyboardField,
           '角色视频URL': !!characterUrlField,
           '角色时间戳': !!characterTimestampsField,
+          '视频引擎': !!videoModelField,
+          '视频分辨率': !!resolutionField,
           '是否生成Sora': !!shouldGenerateField
         },
         '输出': {
@@ -596,7 +645,7 @@ export default function AIGenerate() {
           }
 
           // 获取所有可选字段值
-          const fieldValues = {
+          const fieldValues: GenerationFieldValues = {
             orientation: orientationField ? await getFieldStringValue(table, orientationField, recordId) : null,
             duration: durationField ? await getFieldStringValue(table, durationField, recordId) : null,
             style: styleField ? await getFieldStringValue(table, styleField, recordId) : null,
@@ -606,6 +655,8 @@ export default function AIGenerate() {
             storyboard: storyboardField ? await getFieldStringValue(table, storyboardField, recordId) : null,
             characterUrl: characterUrlField ? await getFieldStringValue(table, characterUrlField, recordId) : null,
             characterTimestamps: characterTimestampsField ? await getFieldStringValue(table, characterTimestampsField, recordId) : null,
+            videoModel: videoModelField ? await getFieldStringValue(table, videoModelField, recordId) : null,
+            resolution: resolutionField ? await getFieldStringValue(table, resolutionField, recordId) : null,
           };
 
           // 获取参考图URL（可选，多张取全部）
@@ -853,7 +904,7 @@ export default function AIGenerate() {
           AI 视频生成
         </Title>
         <Text type="tertiary" size="small">
-          使用 Sora2 AI 模型生成高质量视频内容
+          使用 Sora2 / Veo3 模型生成高质量视频内容（可通过表格字段选择视频引擎）
         </Text>
       </div>
 
@@ -943,6 +994,8 @@ export default function AIGenerate() {
             <span style={styles.fieldTag}>生成时长</span>
             <span style={styles.fieldTag}>视频风格</span>
             <span style={styles.fieldTag}>添加水印</span>
+            <span style={styles.fieldTag}>视频引擎</span>
+            <span style={styles.fieldTag}>视频分辨率</span>
             <span style={styles.fieldTag}>是否生成Sora</span>
           </div>
         </div>
