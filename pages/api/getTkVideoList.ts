@@ -19,7 +19,7 @@ export default async function handler(
   }
 
   // 获取查询参数
-  const { access_token, business_id, fields, cursor, max_count } = req.query
+  const { access_token, business_id, fields, cursor, max_count, filters } = req.query
 
   // 验证必需参数
   if (!access_token || !business_id) {
@@ -44,6 +44,10 @@ export default async function handler(
     }
     if (max_count) {
       apiUrl += `&max_count=${encodeURIComponent(max_count as string)}`
+    }
+    if (filters) {
+      // filters 参数为 JSON 对象字符串，例如：{"video_ids":["xxx"]}
+      apiUrl += `&filters=${encodeURIComponent(filters as string)}`
     }
     
     console.log(`Requesting TikTok video list for business_id: ${business_id}`)

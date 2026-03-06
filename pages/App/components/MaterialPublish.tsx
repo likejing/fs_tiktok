@@ -5,7 +5,7 @@ import { IconSend, IconRefresh2, IconUpload } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { getFieldStringValue } from '../../../lib/fieldUtils';
-import { TIKTOK_REFRESH_TOKEN_API, TIKTOK_PUBLISH_STATUS_API, UPLOAD_TO_OSS_API, PUBLISH_VIDEO_API } from '../../../lib/constants';
+import { TIKTOK_REFRESH_TOKEN_API, TIKTOK_PUBLISH_STATUS_API, TIKTOK_VIDEO_LIST_API, UPLOAD_TO_OSS_API, PUBLISH_VIDEO_API } from '../../../lib/constants';
 
 const { Title, Text } = Typography;
 
@@ -140,8 +140,8 @@ export default function MaterialPublish() {
       let successCount = 0;
       let errorCount = 0;
 
-      // 附件大小上限（保守按 200MB 处理，超过则直接提示并跳过）
-      const MAX_FILE_SIZE = 200 * 1024 * 1024;
+      // 附件大小上限（保守按 50MB 处理，超过则直接提示并跳过）
+      const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
       for (let i = 0; i < batchFiles.length; i++) {
         const item = batchFiles[i];
@@ -168,12 +168,11 @@ export default function MaterialPublish() {
           }
 
           // 2. 使用多维表格官方接口上传文件并写入附件字段
-          // 对文件名做一次「瘦身」，避免命中 file name 过长限制
-          const safeName = item.name.length > 80 ? item.name.slice(-80) : item.name;
-          const uploadFile =
-            safeName === item.name
-              ? item.file
-              : new File([item.file], safeName, { type: item.file.type || 'video/mp4' });
+          // 飞书 SDK 对文件名较敏感，用纯英文短名（v1.mp4）+ 从 Blob 构造新 File 避免引用问题
+          const raw = item.file;
+          const blob = raw instanceof Blob ? raw : new Blob([raw], { type: (raw as any)?.type || 'video/mp4' });
+          const safeName = `v${i + 1}.mp4`;
+          const uploadFile = new File([blob], safeName, { type: blob.type || 'video/mp4' });
 
           const tokens = await bitable.base.batchUploadFile([uploadFile]);
           if (!tokens || !tokens.length) {
@@ -183,7 +182,7 @@ export default function MaterialPublish() {
           const attachmentField = await materialTable.getFieldById(videoAttachmentField.id);
           const attachmentValue = [{
             name: safeName,
-            size: item.size,
+            size: uploadFile.size,
             type: uploadFile.type || 'video/mp4',
             token: tokens[0],
             timeStamp: Date.now(),
@@ -225,7 +224,7 @@ export default function MaterialPublish() {
     }
   };
 
-  // 获取发布状态
+  // 获取发布状态（TikTok API 返回 data，其中 status 与 post_id 列表见技术文档 docs/tiktok）
   const getPublishStatus = async (accessToken: string, businessId: string, publishId: string): Promise<any> => {
     try {
       console.log(`正在获取发布状态 - publish_id: ${publishId}`);
@@ -234,14 +233,48 @@ export default function MaterialPublish() {
       const result = await response.json();
 
       if (result.code === 0 && result.data) {
-        console.log(`✅ 获取发布状态成功: ${result.data.status}`);
-        return result.data;
+        const data = result.data;
+        console.log(`✅ 获取发布状态成功: ${data.status}`);
+        // 兼容 API 字段：post_ids 或 publicaly_available_post_id（技术文档）
+        const postIds = Array.isArray(data.post_ids)
+          ? data.post_ids
+          : Array.isArray(data.publicaly_available_post_id)
+            ? data.publicaly_available_post_id
+            : [];
+        return { ...data, post_ids: postIds };
       } else {
         throw new Error(result.error || result.message || '获取发布状态失败');
       }
     } catch (error: any) {
       console.error('获取发布状态失败:', error);
       throw error;
+    }
+  };
+
+  // 通过 video/list 获取 share_url，用于写入「TikTok视频链接」
+  const getTikTokShareUrlByPostId = async (accessToken: string, businessId: string, postId: string): Promise<string | undefined> => {
+    try {
+      const fields = ['item_id', 'share_url'];
+      const filters = { video_ids: [postId] };
+      const apiUrl =
+        `${TIKTOK_VIDEO_LIST_API}` +
+        `?access_token=${encodeURIComponent(accessToken)}` +
+        `&business_id=${encodeURIComponent(businessId)}` +
+        `&fields=${encodeURIComponent(JSON.stringify(fields))}` +
+        `&filters=${encodeURIComponent(JSON.stringify(filters))}` +
+        `&max_count=20`;
+
+      const resp = await fetch(apiUrl);
+      const json = await resp.json();
+      if (json?.code !== 0) return undefined;
+
+      const videos: any[] = json?.data?.videos || [];
+      const found = videos.find(v => String(v?.item_id) === String(postId));
+      const shareUrl = found?.share_url ? String(found.share_url) : '';
+      return shareUrl.trim() ? shareUrl.trim() : undefined;
+    } catch (e) {
+      console.warn('获取 TikTok share_url 失败:', e);
+      return undefined;
     }
   };
 
@@ -380,11 +413,28 @@ export default function MaterialPublish() {
           } else if (accessTokenStr.length < 10) {
             console.warn(`⚠️ 账号 ${record.recordId} 的 access_token 格式可能不正确 (长度: ${accessTokenStr.length})`);
           }
+
+          // 尝试从账号表获取用户名（用于拼 TikTok 视频链接）
+          let username: string | undefined;
+          try {
+            const accountFieldList = await accountTable.getFieldList();
+            for (const f of accountFieldList) {
+              const name = await f.getName();
+              if (name === 'username' || name === '用户名') {
+                const v = await getFieldStringValue(accountTable, f, record.recordId);
+                if (v && String(v).trim()) username = String(v).trim();
+                break;
+              }
+            }
+          } catch (e) {
+            console.warn('获取账号用户名失败:', e);
+          }
           
           return {
             recordId: record.recordId,
             openId: openId,
-            accessToken: accessTokenStr
+            accessToken: accessTokenStr,
+            username
           };
         }
       }
@@ -1057,9 +1107,11 @@ export default function MaterialPublish() {
                         }
                       }
 
-                      // 构建并保存TikTok视频链接
+                      // 构建并保存TikTok视频链接（使用账号表中的用户名）
                       const firstPostId = publishStatusData.post_ids[0];
-                      const tiktokVideoUrl = `https://www.tiktok.com/@user/video/${firstPostId}`;
+                      const shareUrl = await getTikTokShareUrlByPostId(accessToken, openId, firstPostId);
+                      const username = (accountInfo?.username && String(accountInfo.username).trim()) || 'user';
+                      const tiktokVideoUrl = shareUrl || `https://www.tiktok.com/@${username}/video/${firstPostId}`;
 
                       // 查找或创建TikTok视频链接字段
                       let tiktokLinkField: any = null;
@@ -1411,9 +1463,11 @@ export default function MaterialPublish() {
                 }
               }
 
-              // 构建并保存TikTok视频链接
+              // 构建并保存TikTok视频链接（使用账号表中的用户名）
               const firstPostId = publishStatusData.post_ids[0];
-              const tiktokVideoUrl = `https://www.tiktok.com/@user/video/${firstPostId}`;
+              const shareUrl = await getTikTokShareUrlByPostId(String(accountInfo.accessToken).trim(), openId, firstPostId);
+              const username = (accountInfo?.username && String(accountInfo.username).trim()) || 'user';
+              const tiktokVideoUrl = shareUrl || `https://www.tiktok.com/@${username}/video/${firstPostId}`;
 
               // 查找或创建TikTok视频链接字段
               let tiktokLinkField: any = null;
