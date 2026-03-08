@@ -12,12 +12,12 @@ const { Title, Text } = Typography;
 // Sora2 API 参数配置
 // 必填参数: model, prompt
 // 可选参数: duration, aspect_ratio, image_urls, watermark, thumbnail, private, style, storyboard, character_url, character_timestamps
+// 注意：当前统一使用 sora-2-pro 模型（sora-2 暂时不可用）
 const SORA2_CONFIG = {
   // 支持的模型
-  models: ['sora-2', 'sora-2-pro'] as const,
-  // 支持的时长（秒）：sora-2 支持 10/15，sora-2-pro 支持 10/15/25
+  models: ['sora-2-pro'] as const,
+  // 支持的时长（秒）：sora-2-pro 支持 10/15/25
   durations: {
-    'sora-2': [10, 15],
     'sora-2-pro': [10, 15, 25]
   },
   // 支持的分辨率
@@ -34,7 +34,7 @@ const SORA2_CONFIG = {
   ],
   // 默认值
   defaults: {
-    model: 'sora-2' as const,
+    model: 'sora-2-pro' as const,
     duration: 10,
     aspectRatio: '16:9' as const,
     watermark: false,
@@ -278,10 +278,11 @@ export default function AIGenerate() {
     const aspectRatio = parseAspectRatio(fieldValues.orientation || null);
 
     // 根据引擎选择模型
+    // 注意：sora-2 暂时不可用，统一使用 sora-2-pro
     const model =
       engine === 'veo'
         ? 'veo3.1-fast'
-        : (durationSec >= 25 ? 'sora-2-pro' : 'sora-2');
+        : 'sora-2-pro';
 
     // 构建必填参数
     const payload: Record<string, any> = {
@@ -904,7 +905,7 @@ export default function AIGenerate() {
           AI 视频生成
         </Title>
         <Text type="tertiary" size="small">
-          使用 Sora2 / Veo3 模型生成高质量视频内容（可通过表格字段选择视频引擎）
+          使用 Sora2 Pro / Veo3 模型生成高质量视频内容（当前统一使用 Sora2 Pro）
         </Text>
       </div>
 

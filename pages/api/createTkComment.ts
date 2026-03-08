@@ -20,7 +20,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const url = 'https://business-api.tiktok.com/open_api/v1.3/business/comment/create/'
 
-    console.log(`创建 TikTok 评论: video_id=${video_id}`)
+    console.log(`创建 TikTok 评论: video_id=${video_id}, business_id=${business_id}`)
+    console.log(`请求参数:`, {
+      business_id,
+      video_id,
+      text: String(text).substring(0, 150),
+      access_token_length: String(access_token).length
+    })
 
     const response = await fetch(url, {
       method: 'POST',
@@ -36,7 +42,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     })
 
     const data = await response.json()
-    
+
+    console.log(`TikTok API 响应:`, {
+      status: response.status,
+      ok: response.ok,
+      data
+    })
+
     if (!response.ok) {
       console.error('TikTok API 错误:', data)
       res.status(response.status).json(data)

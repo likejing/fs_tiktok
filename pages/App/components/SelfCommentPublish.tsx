@@ -1,40 +1,55 @@
 'use client'
 import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
-import { Button, Form, Input, Toast, Typography, Space, Card, Banner, Progress, Table, Tag, TextArea } from '@douyinfe/semi-ui';
-import { IconSend, IconRefresh, IconTickCircle } from '@douyinfe/semi-icons';
+import { Button, Form, Toast, Typography, Card, Banner, TextArea, Select, Space } from '@douyinfe/semi-ui';
+import { IconSend } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef } from 'react';
-import { TIKTOK_COMMENT_CREATE_API, TIKTOK_COMMENT_LIST_API } from '../../../lib/constants';
+import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
+import { TIKTOK_COMMENT_CREATE_API } from '../../../lib/constants';
+import { getAccessTokenByRecordId } from '../../../lib/tokenUtils';
 
 const { Title, Text } = Typography;
-
-interface CommentTask {
-  id: string;
-  videoId: string;
-  videoTitle: string;
-  commentText: string;
-  status: 'pending' | 'sending' | 'sent' | 'verifying' | 'success' | 'failed';
-  commentId?: string;
-  error?: string;
-  sentTime?: number;
-}
 
 export default function SelfCommentPublish() {
   const [videoTableMetaList, setVideoTableMetaList] = useState<ITableMeta[]>();
   const [accountTableMetaList, setAccountTableMetaList] = useState<ITableMeta[]>();
-  const [commentTasks, setCommentTasks] = useState<CommentTask[]>([]);
+  const [videoList, setVideoList] = useState<Array<{ value: string; label: string; recordId: string }>>([]);
+  const [accountList, setAccountList] = useState<Array<{ value: string; label: string; recordId: string }>>([]);
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState('');
-  const [selectedAccountId, setSelectedAccountId] = useState('');
-  const [accessToken, setAccessToken] = useState('');
+  const formApi = useRef<BaseFormApi>();
 
-  // 初始化：获取数据表列表
+  // 初始化：获取数据表列表并设置默认值
   useEffect(() => {
     const init = async () => {
       try {
-        const tableMetaList = await bitable.base.getTableMetaList();
+        const [tableMetaList, selection] = await Promise.all([
+          bitable.base.getTableMetaList(),
+          bitable.base.getSelection()
+        ]);
+
         setVideoTableMetaList(tableMetaList);
         setAccountTableMetaList(tableMetaList);
+
+        // 查找默认表
+        const videoTable = tableMetaList.find(t => t.name === '视频列表') ||
+                          tableMetaList.find(t => t.name.includes('视频'));
+        const accountTable = tableMetaList.find(t => t.name === '账号列表') ||
+                            tableMetaList.find(t => t.name.includes('账号'));
+
+        // 设置默认值
+        if (formApi.current) {
+          formApi.current.setValues({
+            videoTable: videoTable?.id || selection.tableId,
+            accountTable: accountTable?.id || selection.tableId
+          });
+
+          // 自动加载默认表的数据
+          if (videoTable?.id) {
+            await loadVideoList(videoTable.id);
+          }
+          if (accountTable?.id) {
+            await loadAccountList(accountTable.id);
+          }
+        }
       } catch (e) {
         console.error('初始化失败:', e);
         Toast.error('初始化失败，请刷新页面重试');
@@ -43,282 +58,279 @@ export default function SelfCommentPublish() {
     init();
   }, []);
 
-  // 加载视频和评论内容
-  const loadVideosAndComments = async (videoTableId: string, commentFieldName: string) => {
+  // 加载视频列表
+  const loadVideoList = async (tableId: string) => {
     try {
-      const table = await bitable.base.getTableById(videoTableId);
+      const table = await bitable.base.getTableById(tableId);
       const fieldMetaList = await table.getFieldMetaList();
 
       // 查找必要字段
-      const videoIdField = fieldMetaList.find(f => f.name === 'video_id' || f.name === '视频ID');
-      const titleField = fieldMetaList.find(f => f.name === 'title' || f.name === '标题' || f.name === 'caption');
-      const commentField = fieldMetaList.find(f => f.name === commentFieldName);
+      const videoIdField = fieldMetaList.find(f =>
+        f.name === 'video_id' || f.name === '视频ID' || f.name === 'item_id'
+      );
+      const titleField = fieldMetaList.find(f =>
+        f.name === 'title' || f.name === '标题' || f.name === 'caption'
+      );
 
       if (!videoIdField) {
-        Toast.error('视频表缺少必要字段：video_id 或 视频ID');
-        return;
-      }
-
-      if (!commentField) {
-        Toast.error(`未找到评论字段：${commentFieldName}`);
+        Toast.warning('视频表缺少必要字段：video_id 或 视频ID');
         return;
       }
 
       const recordIdList = await table.getRecordIdList();
-      const tasks: CommentTask[] = [];
+      const videos: Array<{ value: string; label: string; recordId: string }> = [];
 
       for (const recordId of recordIdList) {
-        const videoId = await table.getCellValue(videoIdField.id, recordId);
-        const title = titleField ? await table.getCellValue(titleField.id, recordId) : '';
-        const commentText = await table.getCellValue(commentField.id, recordId);
+        const videoIdValue = await table.getCellValue(videoIdField.id, recordId);
+        const titleValue = titleField ? await table.getCellValue(titleField.id, recordId) : '';
 
-        if (videoId && commentText) {
-          tasks.push({
-            id: recordId,
-            videoId: String(videoId),
-            videoTitle: String(title || videoId),
-            commentText: String(commentText),
-            status: 'pending'
+        // 处理 video_id 可能的对象类型
+        let videoId = '';
+        if (videoIdValue) {
+          if (typeof videoIdValue === 'string') {
+            videoId = videoIdValue;
+          } else if (Array.isArray(videoIdValue) && videoIdValue.length > 0) {
+            videoId = String(videoIdValue[0].text || videoIdValue[0]);
+          } else if (typeof videoIdValue === 'object' && videoIdValue !== null) {
+            videoId = String((videoIdValue as any).text || videoIdValue);
+          } else {
+            videoId = String(videoIdValue);
+          }
+        }
+
+        // 处理可能的对象类型，提取文本内容
+        let title = '';
+        if (titleValue) {
+          if (typeof titleValue === 'string') {
+            title = titleValue;
+          } else if (Array.isArray(titleValue) && titleValue.length > 0) {
+            title = String(titleValue[0].text || titleValue[0]);
+          } else if (typeof titleValue === 'object' && titleValue !== null) {
+            title = String((titleValue as any).text || titleValue);
+          } else {
+            title = String(titleValue);
+          }
+        }
+
+        if (videoId) {
+          videos.push({
+            value: videoId,
+            label: title ? `${title} (${videoId})` : videoId,
+            recordId
           });
         }
       }
 
-      setCommentTasks(tasks);
-      Toast.success(`加载了 ${tasks.length} 条待发送评论`);
+      setVideoList(videos);
+      console.log(`加载了 ${videos.length} 个视频`);
     } catch (e) {
-      console.error('加载视频失败:', e);
-      Toast.error('加载视频失败');
+      console.error('加载视频列表失败:', e);
+      Toast.error('加载视频列表失败');
     }
   };
 
-  // 加载账号 Token
-  const loadAccountToken = async (accountTableId: string, accountRecordId: string) => {
+  // 加载账号列表
+  const loadAccountList = async (tableId: string) => {
     try {
-      const table = await bitable.base.getTableById(accountTableId);
+      const table = await bitable.base.getTableById(tableId);
       const fieldMetaList = await table.getFieldMetaList();
 
+      const openIdField = fieldMetaList.find(f => f.name === 'open_id' || f.name === 'business_id');
+      const usernameField = fieldMetaList.find(f =>
+        f.name === 'username' || f.name === '用户名' || f.name === 'display_name' || f.name === '账号展示名'
+      );
       const accessTokenField = fieldMetaList.find(f => f.name === 'access_token' || f.name === '访问令牌');
 
-      if (!accessTokenField) {
-        Toast.error('账号表缺少必要字段：access_token');
+      if (!openIdField || !accessTokenField) {
+        Toast.warning('账号表缺少必要字段：open_id 和 access_token');
         return;
       }
 
-      const token = await table.getCellValue(accessTokenField.id, accountRecordId);
-      if (token) {
-        setAccessToken(String(token));
-        setSelectedAccountId(accountRecordId);
-        Toast.success('账号 Token 加载成功');
-      } else {
-        Toast.error('该账号没有 access_token');
+      const recordIdList = await table.getRecordIdList();
+      const accounts: Array<{ value: string; label: string; recordId: string }> = [];
+
+      for (const recordId of recordIdList) {
+        const openIdValue = await table.getCellValue(openIdField.id, recordId);
+        const usernameValue = usernameField ? await table.getCellValue(usernameField.id, recordId) : '';
+        const accessToken = await table.getCellValue(accessTokenField.id, recordId);
+
+        // 处理 open_id 可能的对象类型
+        let openId = '';
+        if (openIdValue) {
+          if (typeof openIdValue === 'string') {
+            openId = openIdValue;
+          } else if (Array.isArray(openIdValue) && openIdValue.length > 0) {
+            openId = String(openIdValue[0].text || openIdValue[0]);
+          } else if (typeof openIdValue === 'object' && openIdValue !== null) {
+            openId = String((openIdValue as any).text || openIdValue);
+          } else {
+            openId = String(openIdValue);
+          }
+        }
+
+        // 处理可能的对象类型，提取文本内容
+        let username = '';
+        if (usernameValue) {
+          if (typeof usernameValue === 'string') {
+            username = usernameValue;
+          } else if (Array.isArray(usernameValue) && usernameValue.length > 0) {
+            username = String(usernameValue[0].text || usernameValue[0]);
+          } else if (typeof usernameValue === 'object' && usernameValue !== null) {
+            username = String((usernameValue as any).text || usernameValue);
+          } else {
+            username = String(usernameValue);
+          }
+        }
+
+        if (openId && accessToken) {
+          accounts.push({
+            value: recordId,
+            label: username ? `${username} (${openId})` : openId,
+            recordId
+          });
+        }
       }
+
+      setAccountList(accounts);
+      console.log(`加载了 ${accounts.length} 个账号`);
     } catch (e) {
-      console.error('加载账号 Token 失败:', e);
-      Toast.error('加载账号 Token 失败');
+      console.error('加载账号列表失败:', e);
+      Toast.error('加载账号列表失败');
     }
   };
 
-  // 发送单条评论
-  const sendComment = async (videoId: string, commentText: string): Promise<string> => {
-    const response = await fetch(TIKTOK_COMMENT_CREATE_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        access_token: accessToken,
-        video_id: videoId,
-        text: commentText
-      })
-    });
-
-    const result = await response.json();
-
-    if (result.code === 0 && result.data && result.data.comment_id) {
-      return result.data.comment_id;
-    } else {
-      throw new Error(result.error || result.message || '发送评论失败');
-    }
-  };
-
-  // 获取视频评论列表
-  const getVideoComments = async (videoId: string): Promise<any[]> => {
-    const response = await fetch(
-      `${TIKTOK_COMMENT_LIST_API}?access_token=${encodeURIComponent(accessToken)}&video_id=${encodeURIComponent(videoId)}&count=100`
-    );
-
-    const result = await response.json();
-
-    if (result.code === 0 && result.data && result.data.comments) {
-      return result.data.comments;
-    } else {
-      throw new Error(result.error || result.message || '获取评论列表失败');
-    }
-  };
-
-  // 验证评论是否发送成功
-  const verifyComment = async (videoId: string, commentId: string, commentText: string): Promise<boolean> => {
-    try {
-      const comments = await getVideoComments(videoId);
-
-      // 查找匹配的评论
-      const found = comments.find(c =>
-        c.comment_id === commentId || c.text === commentText
-      );
-
-      return !!found;
-    } catch (error) {
-      console.error('验证评论失败:', error);
-      return false;
-    }
-  };
-
-  // 批量发送评论
-  const handleBatchSend = async () => {
-    if (commentTasks.length === 0) {
-      Toast.warning('请先加载视频和评论内容');
-      return;
-    }
-
-    if (!accessToken) {
-      Toast.warning('请先加载账号 Token');
+  // 发送评论
+  const handleSendComment = async (values: any) => {
+    if (!values.video || !values.account || !values.commentText) {
+      Toast.warning('请填写完整信息');
       return;
     }
 
     setLoading(true);
-    setProgress(0);
-    setStatus('开始批量发送评论...');
 
     try {
-      for (let i = 0; i < commentTasks.length; i++) {
-        const task = commentTasks[i];
-        setProgress(Math.round(((i + 1) / commentTasks.length) * 100));
-        setStatus(`处理评论 ${i + 1}/${commentTasks.length}: ${task.videoTitle}`);
+      // 获取账号表
+      const accountTable = await bitable.base.getTableById(values.accountTable);
+      const accountFieldMetaList = await accountTable.getFieldMetaList();
 
-        try {
-          // 1. 发送评论
-          setCommentTasks(prev => prev.map(t =>
-            t.id === task.id ? { ...t, status: 'sending' } : t
-          ));
+      // 使用 tokenUtils 获取并自动刷新 access_token
+      const accessToken = await getAccessTokenByRecordId(accountTable, values.account);
 
-          const commentId = await sendComment(task.videoId, task.commentText);
-          const sentTime = Date.now();
-
-          setCommentTasks(prev => prev.map(t =>
-            t.id === task.id ? { ...t, status: 'sent', commentId, sentTime } : t
-          ));
-
-          console.log(`✅ 评论发送成功: ${commentId}`);
-
-          // 2. 等待 5 秒后验证
-          setCommentTasks(prev => prev.map(t =>
-            t.id === task.id ? { ...t, status: 'verifying' } : t
-          ));
-
-          await new Promise(resolve => setTimeout(resolve, 5000));
-
-          // 3. 验证评论是否成功
-          const verified = await verifyComment(task.videoId, commentId, task.commentText);
-
-          if (verified) {
-            setCommentTasks(prev => prev.map(t =>
-              t.id === task.id ? { ...t, status: 'success' } : t
-            ));
-            console.log(`✅ 评论验证成功: ${commentId}`);
-          } else {
-            setCommentTasks(prev => prev.map(t =>
-              t.id === task.id ? { ...t, status: 'failed', error: '验证失败：未在评论列表中找到' } : t
-            ));
-            console.warn(`⚠️ 评论验证失败: ${commentId}`);
-          }
-
-        } catch (error: any) {
-          console.error(`处理评论失败:`, error);
-          setCommentTasks(prev => prev.map(t =>
-            t.id === task.id ? { ...t, status: 'failed', error: error.message } : t
-          ));
-        }
-
-        // 延迟，避免请求过快
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      if (!accessToken) {
+        Toast.error('无法获取有效的 access_token');
+        setLoading(false);
+        return;
       }
 
-      Toast.success('批量处理完成！');
+      // 获取 business_id (open_id)
+      const openIdField = accountFieldMetaList.find(f => f.name === 'open_id' || f.name === 'business_id');
+      if (!openIdField) {
+        Toast.error('账号表缺少 open_id 字段');
+        setLoading(false);
+        return;
+      }
+
+      const businessIdValue = await accountTable.getCellValue(openIdField.id, values.account);
+
+      if (!businessIdValue) {
+        Toast.error('该账号没有 open_id');
+        setLoading(false);
+        return;
+      }
+
+      // 处理 business_id 可能的对象类型
+      let businessId = '';
+      if (typeof businessIdValue === 'string') {
+        businessId = businessIdValue;
+      } else if (Array.isArray(businessIdValue) && businessIdValue.length > 0) {
+        businessId = String(businessIdValue[0].text || businessIdValue[0]);
+      } else if (typeof businessIdValue === 'object' && businessIdValue !== null) {
+        businessId = String((businessIdValue as any).text || businessIdValue);
+      } else {
+        businessId = String(businessIdValue);
+      }
+
+      // 处理 video_id 可能的对象类型
+      let videoId = '';
+      if (typeof values.video === 'string') {
+        videoId = values.video;
+      } else if (Array.isArray(values.video) && values.video.length > 0) {
+        videoId = String(values.video[0].text || values.video[0]);
+      } else if (typeof values.video === 'object' && values.video !== null) {
+        videoId = String((values.video as any).text || values.video);
+      } else {
+        videoId = String(values.video);
+      }
+
+      console.log('发送评论:', {
+        business_id: businessId,
+        video_id: videoId,
+        text: values.commentText
+      });
+
+      // 调用 API 发送评论
+      const response = await fetch(TIKTOK_COMMENT_CREATE_API, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          access_token: accessToken,
+          business_id: businessId,
+          video_id: videoId,
+          text: values.commentText
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.code === 0 && result.data && result.data.comment_id) {
+        Toast.success(`评论发送成功！Comment ID: ${result.data.comment_id}`);
+        console.log('评论发送成功:', result.data);
+
+        // 清空评论内容
+        formApi.current?.setValue('commentText', '');
+      } else {
+        const errorMsg = result.error || result.message || '发送评论失败';
+        Toast.error(`发送失败: ${errorMsg}`);
+        console.error('发送评论失败:', result);
+      }
     } catch (error: any) {
-      console.error('批量处理失败:', error);
-      Toast.error(`批量处理失败: ${error.message}`);
+      console.error('发送评论失败:', error);
+      Toast.error(`发送失败: ${error.message || '未知错误'}`);
     } finally {
       setLoading(false);
-      setStatus('');
     }
   };
-
-  // 清空列表
-  const handleClear = () => {
-    setCommentTasks([]);
-    setProgress(0);
-    setStatus('');
-  };
-
-  // 表格列定义
-  const columns = [
-    {
-      title: '视频标题',
-      dataIndex: 'videoTitle',
-      width: 200,
-      render: (text: string) => <Text ellipsis={{ showTooltip: true }}>{text}</Text>
-    },
-    {
-      title: '评论内容',
-      dataIndex: 'commentText',
-      width: 250,
-      render: (text: string) => <Text ellipsis={{ showTooltip: true }}>{text}</Text>
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      width: 120,
-      render: (status: string) => {
-        const statusMap: Record<string, { color: 'grey' | 'blue' | 'cyan' | 'orange' | 'green' | 'red'; text: string }> = {
-          pending: { color: 'grey', text: '待发送' },
-          sending: { color: 'blue', text: '发送中' },
-          sent: { color: 'cyan', text: '已发送' },
-          verifying: { color: 'orange', text: '验证中' },
-          success: { color: 'green', text: '成功' },
-          failed: { color: 'red', text: '失败' }
-        };
-        const { color, text } = statusMap[status] || { color: 'grey', text: '未知' };
-        return <Tag color={color}>{text}</Tag>;
-      }
-    },
-    {
-      title: 'Comment ID',
-      dataIndex: 'commentId',
-      width: 200,
-      render: (id: string) => id ? <Text copyable>{id}</Text> : '-'
-    },
-    {
-      title: '错误信息',
-      dataIndex: 'error',
-      render: (error: string) => error ? <Text type="danger">{error}</Text> : '-'
-    }
-  ];
 
   return (
     <div style={{ padding: '0 4px' }}>
       <Banner
         type="info"
-        description="给自己的视频批量发送评论，发送后自动验证评论是否成功。适用于新视频冷启动、增加互动等场景。"
-        style={{ marginBottom: 16 }}
+        description="给自己的 TikTok 视频发送评论。适用于新视频冷启动、增加互动、引导评论等场景。注意：避免在短时间内发布大量内容高度相似的评论，以防被系统标记为垃圾评论。"
+        style={{ marginBottom: 16, borderRadius: 8 }}
       />
 
-      <Card style={{ marginBottom: 16 }}>
-        <Form labelPosition="left" labelWidth={120}>
+      <Card style={{ marginBottom: 16, borderRadius: 8 }} bodyStyle={{ padding: '20px' }}>
+        <Title heading={6} style={{ marginBottom: 16 }}>发送评论</Title>
+
+        <Form
+          getFormApi={(api) => formApi.current = api}
+          labelPosition="left"
+          labelWidth={100}
+          onSubmit={handleSendComment}
+        >
           <Form.Select
             field="accountTable"
-            label="选择账号表"
+            label="账号表"
             placeholder="选择包含账号信息的数据表"
             style={{ width: '100%' }}
+            rules={[{ required: true, message: '请选择账号表' }]}
+            onChange={(value) => {
+              if (value) {
+                loadAccountList(value as string);
+              }
+            }}
           >
             {accountTableMetaList?.map(table => (
               <Form.Select.Option key={table.id} value={table.id}>
@@ -328,25 +340,31 @@ export default function SelfCommentPublish() {
           </Form.Select>
 
           <Form.Select
-            field="accountRecord"
+            field="account"
             label="选择账号"
             placeholder="选择要使用的账号"
             style={{ width: '100%' }}
-            onChange={(value) => {
-              const accountTableId = (document.querySelector('[name="accountTable"]') as any)?.value;
-              if (accountTableId && value) {
-                loadAccountToken(accountTableId, value as string);
-              }
-            }}
+            rules={[{ required: true, message: '请选择账号' }]}
+            filter
           >
-            {/* 需要动态加载账号列表 */}
+            {accountList.map(account => (
+              <Form.Select.Option key={account.value} value={account.value}>
+                {account.label}
+              </Form.Select.Option>
+            ))}
           </Form.Select>
 
           <Form.Select
             field="videoTable"
-            label="选择视频表"
+            label="视频表"
             placeholder="选择包含视频信息的数据表"
             style={{ width: '100%' }}
+            rules={[{ required: true, message: '请选择视频表' }]}
+            onChange={(value) => {
+              if (value) {
+                loadVideoList(value as string);
+              }
+            }}
           >
             {videoTableMetaList?.map(table => (
               <Form.Select.Option key={table.id} value={table.id}>
@@ -355,74 +373,67 @@ export default function SelfCommentPublish() {
             ))}
           </Form.Select>
 
-          <Form.Input
-            field="commentField"
-            label="评论字段名"
-            placeholder="输入评论内容所在的字段名，如：评论内容"
+          <Form.Select
+            field="video"
+            label="选择视频"
+            placeholder="选择要评论的视频"
             style={{ width: '100%' }}
+            rules={[{ required: true, message: '请选择视频' }]}
+            filter
+            showClear
+          >
+            {videoList.map(video => (
+              <Form.Select.Option key={video.value} value={video.value}>
+                {video.label}
+              </Form.Select.Option>
+            ))}
+          </Form.Select>
+
+          <Form.TextArea
+            field="commentText"
+            label="评论内容"
+            placeholder="输入评论内容（最多150个字符）"
+            style={{ width: '100%' }}
+            maxLength={150}
+            showClear
+            autosize={{ minRows: 3, maxRows: 6 }}
+            rules={[
+              { required: true, message: '请输入评论内容' },
+              { max: 150, message: '评论内容不能超过150个字符' }
+            ]}
           />
 
-          <Button
-            type="primary"
-            onClick={() => {
-              const videoTableId = (document.querySelector('[name="videoTable"]') as any)?.value;
-              const commentField = (document.querySelector('[name="commentField"]') as any)?.value;
-              if (videoTableId && commentField) {
-                loadVideosAndComments(videoTableId, commentField);
-              } else {
-                Toast.warning('请填写完整信息');
-              }
-            }}
-          >
-            加载视频和评论
-          </Button>
+          <Space style={{ marginTop: 16 }}>
+            <Button
+              htmlType="submit"
+              type="primary"
+              icon={<IconSend />}
+              loading={loading}
+              style={{ minWidth: 120 }}
+            >
+              发送评论
+            </Button>
+            <Button
+              type="tertiary"
+              onClick={() => formApi.current?.reset()}
+              disabled={loading}
+            >
+              重置
+            </Button>
+          </Space>
         </Form>
       </Card>
 
-      {commentTasks.length > 0 && (
-        <Card
-          title={`评论任务列表 (${commentTasks.length})`}
-          headerExtraContent={
-            <Space>
-              <Button
-                type="danger"
-                theme="borderless"
-                onClick={handleClear}
-                disabled={loading}
-              >
-                清空
-              </Button>
-              <Button
-                icon={<IconSend />}
-                type="primary"
-                onClick={handleBatchSend}
-                loading={loading}
-                disabled={!accessToken}
-              >
-                开始批量发送
-              </Button>
-            </Space>
-          }
-          style={{ marginBottom: 16 }}
-        >
-          <Table
-            columns={columns}
-            dataSource={commentTasks}
-            pagination={false}
-            size="small"
-            rowKey="id"
-          />
-        </Card>
-      )}
-
-      {loading && (
-        <Card>
-          <Space vertical align="start" style={{ width: '100%' }}>
-            <Text>{status}</Text>
-            <Progress percent={progress} showInfo />
-          </Space>
-        </Card>
-      )}
+      <Card style={{ borderRadius: 8 }} bodyStyle={{ padding: '16px' }}>
+        <Title heading={6} style={{ marginBottom: 12 }}>使用提示</Title>
+        <Space vertical align="start" spacing="tight">
+          <Text type="tertiary" size="small">• 评论内容最多150个字符（UTF-8编码）</Text>
+          <Text type="tertiary" size="small">• 避免发送垃圾评论或重复内容</Text>
+          <Text type="tertiary" size="small">• 建议每个视频发送1-3条有意义的评论</Text>
+          <Text type="tertiary" size="small">• 评论需遵守 TikTok 社区规范</Text>
+          <Text type="tertiary" size="small">• 确保账号 Token 包含评论权限</Text>
+        </Space>
+      </Card>
     </div>
   );
 }
