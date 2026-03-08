@@ -90,7 +90,8 @@ export default function SelfCommentPublish() {
           if (typeof videoIdValue === 'string') {
             videoId = videoIdValue;
           } else if (Array.isArray(videoIdValue) && videoIdValue.length > 0) {
-            videoId = String(videoIdValue[0].text || videoIdValue[0]);
+            const firstItem = videoIdValue[0];
+            videoId = String((firstItem as any)?.text || firstItem);
           } else if (typeof videoIdValue === 'object' && videoIdValue !== null) {
             videoId = String((videoIdValue as any).text || videoIdValue);
           } else {
@@ -104,7 +105,8 @@ export default function SelfCommentPublish() {
           if (typeof titleValue === 'string') {
             title = titleValue;
           } else if (Array.isArray(titleValue) && titleValue.length > 0) {
-            title = String(titleValue[0].text || titleValue[0]);
+            const firstItem = titleValue[0];
+            title = String((firstItem as any)?.text || firstItem);
           } else if (typeof titleValue === 'object' && titleValue !== null) {
             title = String((titleValue as any).text || titleValue);
           } else {
@@ -160,7 +162,8 @@ export default function SelfCommentPublish() {
           if (typeof openIdValue === 'string') {
             openId = openIdValue;
           } else if (Array.isArray(openIdValue) && openIdValue.length > 0) {
-            openId = String(openIdValue[0].text || openIdValue[0]);
+            const firstItem = openIdValue[0];
+            openId = String((firstItem as any)?.text || firstItem);
           } else if (typeof openIdValue === 'object' && openIdValue !== null) {
             openId = String((openIdValue as any).text || openIdValue);
           } else {
@@ -174,7 +177,8 @@ export default function SelfCommentPublish() {
           if (typeof usernameValue === 'string') {
             username = usernameValue;
           } else if (Array.isArray(usernameValue) && usernameValue.length > 0) {
-            username = String(usernameValue[0].text || usernameValue[0]);
+            const firstItem = usernameValue[0];
+            username = String((firstItem as any)?.text || firstItem);
           } else if (typeof usernameValue === 'object' && usernameValue !== null) {
             username = String((usernameValue as any).text || usernameValue);
           } else {
@@ -243,7 +247,8 @@ export default function SelfCommentPublish() {
       if (typeof businessIdValue === 'string') {
         businessId = businessIdValue;
       } else if (Array.isArray(businessIdValue) && businessIdValue.length > 0) {
-        businessId = String(businessIdValue[0].text || businessIdValue[0]);
+        const firstItem = businessIdValue[0];
+        businessId = String((firstItem as any)?.text || firstItem);
       } else if (typeof businessIdValue === 'object' && businessIdValue !== null) {
         businessId = String((businessIdValue as any).text || businessIdValue);
       } else {
@@ -255,7 +260,8 @@ export default function SelfCommentPublish() {
       if (typeof values.video === 'string') {
         videoId = values.video;
       } else if (Array.isArray(values.video) && values.video.length > 0) {
-        videoId = String(values.video[0].text || values.video[0]);
+        const firstItem = values.video[0];
+        videoId = String((firstItem as any)?.text || firstItem);
       } else if (typeof values.video === 'object' && values.video !== null) {
         videoId = String((values.video as any).text || values.video);
       } else {
@@ -396,7 +402,8 @@ export default function SelfCommentPublish() {
             style={{ width: '100%' }}
             maxLength={150}
             showClear
-            autosize={{ minRows: 3, maxRows: 6 }}
+            autosize
+            rows={3}
             rules={[
               { required: true, message: '请输入评论内容' },
               { max: 150, message: '评论内容不能超过150个字符' }
