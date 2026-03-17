@@ -313,16 +313,21 @@ export default function AccountManagement() {
         console.log(`请求账号信息，URL: ${apiUrl.replace(/access_token=[^&]+/, 'access_token=***')}`);
 
         const response = await fetch(apiUrl);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`请求失败: ${response.status} ${response.statusText} - ${errorText}`);
-        }
 
-        const result = await response.json();
+        // 兼容：后端统一返回 200 + 业务 code（即使上游失败）
+        const result = await response.json().catch(async () => {
+          const t = await response.text();
+          return { code: -1, error: '响应解析失败', message: t };
+        });
 
-        if (result.code !== 0 && result.error) {
-          throw new Error(result.error + (result.details ? `: ${result.details}` : ''));
+        if (result?.code !== 0) {
+          const details = result?.details ? String(result.details) : '';
+          const msg = result?.error || result?.message || '请求失败';
+          // TikTok token 失效/被撤销常见错误码：40105
+          if (result?.code === 40105 || /token is incorrect|revoked/i.test(details + msg)) {
+            throw new Error('Access Token 已失效或被撤销，请重新授权或更新该账号的 access_token');
+          }
+          throw new Error(details ? `${msg} - ${details}` : msg);
         }
 
         if (!result.data) {

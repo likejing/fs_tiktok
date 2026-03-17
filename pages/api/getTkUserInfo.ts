@@ -6,6 +6,8 @@ type Data = {
   message?: string
   data?: any
   error?: string
+  details?: any
+  request_id?: string
 }
 
 export default async function handler(
@@ -42,25 +44,44 @@ export default async function handler(
       },
     })
 
-    // 检查响应状态
+    const rawText = await response.text()
+    let json: any = null
+    try {
+      json = rawText ? JSON.parse(rawText) : null
+    } catch {
+      json = null
+    }
+
+    // 统一返回 200：上游即使是 401/500（业务错误），也让前端按 code/message 处理
     if (!response.ok) {
-      const errorText = await response.text()
-      res.status(response.status).json({
+      // 上游如果已经是结构化错误，直接透传；否则包装成通用错误
+      if (json && typeof json === 'object') {
+        res.status(200).json(json)
+        return
+      }
+      res.status(200).json({
         code: -1,
         error: `Request failed: ${response.status} ${response.statusText}`,
-        message: errorText
+        message: rawText || 'Unknown error'
       })
       return
     }
 
-    // 解析响应数据
-    const data = await response.json()
-    
-    // 返回数据
-    res.status(200).json(data)
+    // 上游返回 200，但也可能包含业务错误 code
+    if (json && typeof json === 'object') {
+      res.status(200).json(json)
+      return
+    }
+
+    // 极少数情况：返回不是 JSON
+    res.status(200).json({
+      code: -1,
+      error: 'Invalid upstream response',
+      message: rawText || 'Empty response'
+    })
   } catch (error: any) {
     console.error('Proxy request error:', error)
-    res.status(500).json({
+    res.status(200).json({
       code: -1,
       error: 'Internal server error',
       message: error.message || 'Unknown error'
