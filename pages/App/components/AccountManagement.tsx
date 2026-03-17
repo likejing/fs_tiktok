@@ -264,26 +264,31 @@ export default function AccountManagement() {
       
       let fieldList = await table.getFieldList();
       
-      // 查找 access_token 和 open_id 字段
-      let accessTokenField = fieldList.find((f: any) => f.name === 'access_token');
-      let openIdField = fieldList.find((f: any) => f.name === 'open_id');
-      
-      // 如果字段不存在，尝试获取
-      if (!accessTokenField) {
-        try {
-          accessTokenField = await table.getFieldByName('access_token');
-        } catch (e) {
-          console.warn('access_token字段不存在');
+      // 查找字段（注意：字段名需通过 getName() 获取，不能用 f.name）
+      const findFieldByNames = async (names: string[]) => {
+        // 1) 先在 fieldList 里用 getName() 匹配
+        for (const f of fieldList as any[]) {
+          try {
+            const n = await f.getName();
+            if (names.includes(n)) return f;
+          } catch {
+            // ignore
+          }
         }
-      }
-      
-      if (!openIdField) {
-        try {
-          openIdField = await table.getFieldByName('open_id');
-        } catch (e) {
-          console.warn('open_id字段不存在');
+        // 2) 再按名称逐个 getFieldByName 兜底
+        for (const name of names) {
+          try {
+            return await table.getFieldByName(name);
+          } catch {
+            // ignore
+          }
         }
-      }
+        return null;
+      };
+
+      // access_token / open_id 字段（兼容可能的中文列名）
+      const accessTokenField = await findFieldByNames(['access_token', 'Access Token', '访问令牌', 'accessToken']);
+      const openIdField = await findFieldByNames(['open_id', 'Open ID', 'openId', '账号open_id']);
 
       // 必须同时存在 access_token 和 open_id 字段
       if (!accessTokenField) {
