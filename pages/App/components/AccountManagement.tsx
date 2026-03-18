@@ -4,7 +4,7 @@ import { Button, Form, Input, Toast, Typography, Space, Card, Divider, Banner } 
 import { IconUserAdd, IconRefresh, IconCopy, IconExternalOpen } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
-import { TIKTOK_AUTH_URL, TIKTOK_USER_INFO_API } from '../../../lib/constants';
+import { TIKTOK_AUTH_URL, TIKTOK_REFRESH_TOKEN_API, TIKTOK_USER_INFO_API } from '../../../lib/constants';
 import { 
   getFieldStringValue, 
   getFieldTypeByValue, 
@@ -289,6 +289,8 @@ export default function AccountManagement() {
       // access_token / open_id 字段（兼容可能的中文列名）
       const accessTokenField = await findFieldByNames(['access_token', 'Access Token', '访问令牌', 'accessToken']);
       const openIdField = await findFieldByNames(['open_id', 'Open ID', 'openId', '账号open_id']);
+      const refreshTokenField = await findFieldByNames(['refresh_token', 'Refresh Token', '刷新令牌', 'refreshToken']);
+      const tokenExpiresTimeField = await findFieldByNames(['token失效时间', 'token_expires_time', 'expires_time', 'expires_at']);
 
       // 必须同时存在 access_token 和 open_id 字段
       if (!accessTokenField) {
@@ -303,29 +305,101 @@ export default function AccountManagement() {
         return;
       }
 
+      const refreshAccessToken = async (refreshTokenValue: string) => {
+        const resp = await fetch(TIKTOK_REFRESH_TOKEN_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshTokenValue })
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok || !json || json.code !== 0 || !json.data) {
+          const msg = json?.error || json?.message || `刷新 Token 失败: ${resp.status}`;
+          throw new Error(msg);
+        }
+        return json.data as { access_token?: string; refresh_token?: string; expires_in?: number };
+      };
+
+      const getExpiresTimestampMs = async (recordId: string) => {
+        if (!tokenExpiresTimeField) return 0;
+        try {
+          const v = await tokenExpiresTimeField.getValue(recordId);
+          if (typeof v === 'number') return v;
+          if (v && typeof v === 'string') return Number(v) || 0;
+          if (v && typeof v === 'object' && 'timestamp' in (v as any)) return Number((v as any).timestamp) || 0;
+          return v ? Number(v) || 0 : 0;
+        } catch {
+          return 0;
+        }
+      };
+
+      const maybeRefreshTokenForRecord = async (recordId: string) => {
+        if (!refreshTokenField) return null;
+        const refreshTokenValue = await getFieldStringValue(table, refreshTokenField, recordId);
+        if (!refreshTokenValue) return null;
+
+        const now = Date.now();
+        const expiresTs = await getExpiresTimestampMs(recordId);
+        const shouldRefresh = !expiresTs || expiresTs - now < 5 * 60 * 1000; // 5 分钟缓冲
+        if (!shouldRefresh) return null;
+
+        const newToken = await refreshAccessToken(String(refreshTokenValue).trim());
+        const updateFields: Record<string, any> = {};
+        if (newToken.access_token) updateFields[accessTokenField.id] = newToken.access_token;
+        if (refreshTokenField && newToken.refresh_token) updateFields[refreshTokenField.id] = newToken.refresh_token;
+        if (tokenExpiresTimeField && newToken.expires_in) {
+          updateFields[tokenExpiresTimeField.id] = now + newToken.expires_in * 1000;
+        }
+        if (Object.keys(updateFields).length) {
+          await table.setRecord(recordId, { fields: updateFields });
+        }
+        return newToken;
+      };
+
       // 辅助函数：更新单条记录
       const updateSingleRecord = async (recordId: string, accessToken: string | null, openId: string | null) => {
         if (!accessToken || !openId) {
           return false;
         }
 
-        const apiUrl = `${TIKTOK_USER_INFO_API}?access_token=${encodeURIComponent(accessToken)}&open_id=${encodeURIComponent(openId)}`;
-        console.log(`请求账号信息，URL: ${apiUrl.replace(/access_token=[^&]+/, 'access_token=***')}`);
+        const requestUserInfo = async (token: string) => {
+          const apiUrl = `${TIKTOK_USER_INFO_API}?access_token=${encodeURIComponent(token)}&open_id=${encodeURIComponent(openId)}`;
+          console.log(`请求账号信息，URL: ${apiUrl.replace(/access_token=[^&]+/, 'access_token=***')}`);
+          const response = await fetch(apiUrl);
+          return await response.json().catch(async () => {
+            const t = await response.text();
+            return { code: -1, error: '响应解析失败', message: t };
+          });
+        };
 
-        const response = await fetch(apiUrl);
+        // 先按失效时间做一次预刷新（有 refresh_token 才能做）
+        const refreshed = await maybeRefreshTokenForRecord(recordId);
+        let tokenToUse = refreshed?.access_token ? String(refreshed.access_token).trim() : String(accessToken).trim();
 
-        // 兼容：后端统一返回 200 + 业务 code（即使上游失败）
-        const result = await response.json().catch(async () => {
-          const t = await response.text();
-          return { code: -1, error: '响应解析失败', message: t };
-        });
+        let result = await requestUserInfo(tokenToUse);
+        if (result?.code !== 0) {
+          const details = result?.details ? String(result.details) : '';
+          const msg = result?.error || result?.message || '请求失败';
+          // TikTok token 失效/被撤销常见错误码：40105 -> 再尝试刷新一次并重试
+          if (result?.code === 40105 || /token is incorrect|revoked/i.test(details + msg)) {
+            if (refreshTokenField) {
+              try {
+                const newToken = await maybeRefreshTokenForRecord(recordId);
+                if (newToken?.access_token) {
+                  tokenToUse = String(newToken.access_token).trim();
+                  result = await requestUserInfo(tokenToUse);
+                }
+              } catch (e) {
+                // ignore, fallthrough to throw below
+              }
+            }
+          }
+        }
 
         if (result?.code !== 0) {
           const details = result?.details ? String(result.details) : '';
           const msg = result?.error || result?.message || '请求失败';
-          // TikTok token 失效/被撤销常见错误码：40105
           if (result?.code === 40105 || /token is incorrect|revoked/i.test(details + msg)) {
-            throw new Error('Access Token 已失效或被撤销，请重新授权或更新该账号的 access_token');
+            throw new Error('Access Token 已失效或被撤销，请重新授权或更新该账号的 access_token（如有 refresh_token 会自动刷新）');
           }
           throw new Error(details ? `${msg} - ${details}` : msg);
         }
