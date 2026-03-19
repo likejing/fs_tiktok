@@ -7,6 +7,8 @@ type Data = {
   data?: any
   error?: string
   error_code?: number
+  details?: any
+  request_id?: string
 }
 
 export default async function handler(
@@ -15,18 +17,31 @@ export default async function handler(
 ) {
   // 只允许 POST 请求
   if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' })
+    // 统一返回 200：让前端通过 code/message 处理
+    res.status(200).json({ code: -1, error: 'Method not allowed', message: 'Method not allowed' })
     return
   }
 
-  // 获取请求体
-  const { refresh_token } = req.body
+  // 获取请求体（兼容：对象 / 字符串 / 空）
+  let refresh_token: string | undefined
+  try {
+    const body: any = req.body
+    if (typeof body === 'string' && body.trim()) {
+      const parsed = JSON.parse(body)
+      refresh_token = parsed?.refresh_token ?? parsed?.refreshToken
+    } else if (body && typeof body === 'object') {
+      refresh_token = body?.refresh_token ?? body?.refreshToken
+    }
+  } catch {
+    // ignore: fallthrough to validation error
+  }
 
   // 验证必需参数
   if (!refresh_token) {
-    res.status(400).json({ 
+    res.status(200).json({
       code: -1,
-      error: 'Missing required parameter: refresh_token' 
+      error: 'Missing required parameter: refresh_token',
+      message: 'Missing required parameter: refresh_token',
     })
     return
   }
@@ -37,9 +52,11 @@ export default async function handler(
     const clientSecret = process.env.TIKTOK_CLIENT_SECRET || ''
 
     if (!clientSecret) {
-      res.status(500).json({
+      // 统一返回 200：让前端通过 code/message 处理
+      res.status(200).json({
         code: -1,
-        error: 'TIKTOK_CLIENT_SECRET is not configured. Please set it in environment variables.'
+        error: 'TIKTOK_CLIENT_SECRET is not configured. Please set it in environment variables.',
+        message: 'TIKTOK_CLIENT_SECRET is not configured. Please set it in environment variables.',
       })
       return
     }
@@ -49,7 +66,7 @@ export default async function handler(
       client_id: clientId,
       client_secret: clientSecret,
       grant_type: 'refresh_token',
-      refresh_token: refresh_token
+      refresh_token: String(refresh_token).trim()
     }
 
     console.log(`Refreshing TikTok token with client_id: ${clientId}`)
@@ -64,23 +81,34 @@ export default async function handler(
     })
 
     // 解析响应数据
-    let data: any
+    const responseText = await response.text()
+    let data: any = null
     try {
-      const responseText = await response.text()
-      data = responseText ? JSON.parse(responseText) : {}
-    } catch (e) {
-      data = { code: -1, message: 'Failed to parse response' }
+      data = responseText ? JSON.parse(responseText) : null
+    } catch {
+      data = null
     }
 
     // 检查响应状态和业务错误码
-    if (!response.ok || data.code !== 0) {
-      const errorMessage = data.message || data.error_description || data.error || `Request failed: ${response.status} ${response.statusText}`
+    if (!response.ok || !data || typeof data !== 'object' || data.code !== 0) {
+      const structured = data && typeof data === 'object' ? data : null
+      const errorMessage =
+        structured?.message ||
+        structured?.error_description ||
+        structured?.error ||
+        `Request failed: ${response.status} ${response.statusText}`
       console.error(`Token refresh failed:`, errorMessage)
-      res.status(response.ok ? 200 : response.status).json({
-        code: data.code || -1,
+
+      // 统一返回 200：让前端通过 code/message 处理（避免 fetch 直接抛 HTTP 500）
+      if (structured) {
+        res.status(200).json(structured)
+        return
+      }
+      res.status(200).json({
+        code: -1,
         error: errorMessage,
-        message: errorMessage,
-        error_code: data.error_code || data.code
+        message: responseText || errorMessage,
+        error_code: structured?.error_code,
       })
       return
     }
@@ -91,10 +119,11 @@ export default async function handler(
     res.status(200).json(data)
   } catch (error: any) {
     console.error('Token refresh error:', error)
-    res.status(500).json({
+    res.status(200).json({
       code: -1,
       error: 'Internal server error',
-      message: error.message || 'Unknown error'
+      message: error?.message || 'Unknown error',
+      details: error?.cause || undefined,
     })
   }
 }

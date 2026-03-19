@@ -33,6 +33,18 @@ export default function AccountManagement() {
   const [updating, setUpdating] = useState(false);
   const formApi = useRef<BaseFormApi>();
 
+  const backupAccountToDb = useCallback(async (payload: Record<string, any>) => {
+    try {
+      await fetch('/api/syncAccount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      // ignore: 备份失败不影响主流程
+    }
+  }, []);
+
   // 复制TikTok授权链接
   const handleCopyAuthLink = useCallback(async () => {
     try {
@@ -236,9 +248,31 @@ export default function AccountManagement() {
       if (existingRecordId) {
         await table.setRecord(existingRecordId, { fields });
         Toast.success(`账号已更新！open_id: ${openIdValue}`);
+        // 备份到 MySQL（不阻塞主流程）
+        backupAccountToDb({
+          recordId: existingRecordId,
+          openId: openIdValue,
+          username: dataToSave.username,
+          displayName: dataToSave.display_name,
+          accessToken: dataToSave.access_token,
+          refreshToken: dataToSave.refresh_token,
+          tokenExpiresTime: dataToSave.token_expires_time,
+          profileImage: dataToSave.profile_image,
+        });
       } else {
-        await table.addRecord({ fields });
+        const newId = await table.addRecord({ fields });
         Toast.success(`新账号已添加！open_id: ${openIdValue}`);
+        // 备份到 MySQL（不阻塞主流程）
+        backupAccountToDb({
+          recordId: newId,
+          openId: openIdValue,
+          username: dataToSave.username,
+          displayName: dataToSave.display_name,
+          accessToken: dataToSave.access_token,
+          refreshToken: dataToSave.refresh_token,
+          tokenExpiresTime: dataToSave.token_expires_time,
+          profileImage: dataToSave.profile_image,
+        });
       }
 
       setJsonData('');
@@ -249,7 +283,7 @@ export default function AccountManagement() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [backupAccountToDb]);
 
   // 更新所有账号信息
   const handleUpdateAccountInfo = useCallback(async () => {
@@ -313,7 +347,12 @@ export default function AccountManagement() {
         });
         const json = await resp.json().catch(() => ({}));
         if (!resp.ok || !json || json.code !== 0 || !json.data) {
-          const msg = json?.error || json?.message || `刷新 Token 失败: ${resp.status}`;
+          const msg = (() => {
+            const e = json?.error ? String(json.error) : '';
+            const m = json?.message ? String(json.message) : '';
+            if (e && m && e !== m) return `${e} - ${m}`;
+            return e || m || `刷新 Token 失败: ${resp.status}`;
+          })();
           throw new Error(msg);
         }
         return json.data as { access_token?: string; refresh_token?: string; expires_in?: number };
@@ -351,6 +390,21 @@ export default function AccountManagement() {
         }
         if (Object.keys(updateFields).length) {
           await table.setRecord(recordId, { fields: updateFields });
+          // 备份到 MySQL（不阻塞主流程）
+          try {
+            const openIdForBackup = await getFieldStringValue(table, openIdField, recordId);
+            if (openIdForBackup) {
+              backupAccountToDb({
+                recordId,
+                openId: String(openIdForBackup).trim(),
+                accessToken: newToken.access_token,
+                refreshToken: newToken.refresh_token,
+                tokenExpiresTime: tokenExpiresTimeField && newToken.expires_in ? now + newToken.expires_in * 1000 : undefined,
+              });
+            }
+          } catch {
+            // ignore
+          }
         }
         return newToken;
       };
@@ -442,6 +496,19 @@ export default function AccountManagement() {
         
         if (Object.keys(fields).length > 0) {
           await table.setRecord(recordId, { fields });
+          // 备份到 MySQL（不阻塞主流程）
+          backupAccountToDb({
+            recordId,
+            openId,
+            username: (userInfo as any)?.username,
+            displayName: (userInfo as any)?.display_name,
+            profileImage: (userInfo as any)?.profile_image,
+            followersCount: (userInfo as any)?.followers_count,
+            totalLikes: (userInfo as any)?.total_likes,
+            videosCount: (userInfo as any)?.videos_count,
+            followingCount: (userInfo as any)?.following_count,
+            accessToken: tokenToUse,
+          });
           return true;
         }
         return false;
@@ -521,7 +588,7 @@ export default function AccountManagement() {
     } finally {
       setUpdating(false);
     }
-  }, []);
+  }, [backupAccountToDb]);
 
   useEffect(() => {
     Promise.all([bitable.base.getTableMetaList(), bitable.base.getSelection()])

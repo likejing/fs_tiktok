@@ -1,5 +1,6 @@
 // Next.js API route to proxy TikTok video list request
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { syncVideo, logOperation } from '../../lib/dbSync'
 
 type Data = {
   code?: number
@@ -86,6 +87,58 @@ export default async function handler(
         message: errorMessage
       })
       return
+    }
+
+    // ✅ 备份视频列表到 MySQL（异步，不影响主流程）
+    try {
+      const videos: any[] = Array.isArray(data?.data?.videos)
+        ? data.data.videos
+        : Array.isArray(data?.data?.list)
+          ? data.data.list
+          : []
+
+      if (videos.length > 0) {
+        const businessIdStr = String(business_id)
+
+        await Promise.allSettled(
+          videos.map((v: any) => {
+            const itemId = v?.item_id ?? v?.video_id ?? v?.id
+            if (!itemId) return Promise.resolve()
+
+            const videoIdStr = String(itemId)
+            const recordId = `tiktok_${videoIdStr}`
+
+            return syncVideo({
+              recordId,
+              videoId: videoIdStr,
+              openId: businessIdStr,
+              title: v?.title ?? v?.caption ?? null,
+              caption: v?.caption ?? null,
+              shareUrl: v?.share_url ?? null,
+              embedLink: v?.embed_url ?? v?.embed_link ?? null,
+              coverImageUrl: v?.thumbnail_url ?? v?.cover_image_url ?? null,
+              duration: typeof v?.video_duration === 'number' ? v.video_duration : (v?.duration ?? null),
+              viewCount: v?.video_views ?? v?.view_count ?? null,
+              likeCount: v?.likes ?? v?.like_count ?? null,
+              commentCount: v?.comments ?? v?.comment_count ?? null,
+              shareCount: v?.shares ?? v?.share_count ?? null,
+              createTime: v?.create_time ?? null,
+            })
+          })
+        )
+
+        logOperation({
+          tableName: 'videos',
+          recordId: businessIdStr,
+          operation: 'update',
+          dataAfter: { business_id: businessIdStr, count: videos.length },
+          apiEndpoint: '/api/getTkVideoList',
+          userAgent: req.headers['user-agent'],
+          ipAddress: (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress,
+        }).catch(() => {})
+      }
+    } catch (e) {
+      console.warn('备份视频列表到数据库失败（已忽略，不影响主流程）:', e)
     }
     
     // 返回成功数据

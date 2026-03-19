@@ -20,6 +20,18 @@ export default function MaterialPublish() {
   const [batchFiles, setBatchFiles] = useState<Array<{ uid: string; name: string; size: number; file: File; status: 'pending' | 'uploading' | 'success' | 'error'; error?: string }>>([]);
   const formApi = useRef<BaseFormApi>();
 
+  const backupMaterialToDb = useCallback(async (payload: Record<string, any>) => {
+    try {
+      await fetch('/api/syncMaterial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      // ignore: 备份失败不影响主流程
+    }
+  }, []);
+
   // 获取附件临时下载链接
   const getAttachmentTempUrls = async (table: any, field: any, recordId: string): Promise<Array<{ url: string; name: string; size: number }>> => {
     try {
@@ -1048,6 +1060,20 @@ export default function MaterialPublish() {
                   }
                 }
 
+                // 备份到 MySQL（不阻塞主流程）
+                backupMaterialToDb({
+                  recordId: record.recordId,
+                  caption: caption || '',
+                  videoUrl: finalVideoUrl,
+                  customThumbnailUrl: customThumbnailUrl || undefined,
+                  publishStatus: '发布中',
+                  publishAccount: openId,
+                  shareId: shareId,
+                  isBrandOrganic,
+                  isBrandedContent,
+                  isAiGenerated: isAIGenerated,
+                });
+
                 // 获取发布状态并更新
                 try {
                   setStatus(`正在获取素材 ${i + 1}/${pendingRecords.length} 的发布状态...`);
@@ -1080,6 +1106,14 @@ export default function MaterialPublish() {
                         console.warn(`更新发布状态失败:`, e);
                       }
                     }
+
+                    // 备份到 MySQL（不阻塞主流程）
+                    backupMaterialToDb({
+                      recordId: record.recordId,
+                      publishStatus: statusText,
+                      publishAccount: openId,
+                      shareId,
+                    });
                     
                     // 如果发布成功，保存post_ids和TikTok视频链接（如果有）
                     if (statusValue === 'PUBLISH_COMPLETE' && publishStatusData.post_ids && Array.isArray(publishStatusData.post_ids) && publishStatusData.post_ids.length > 0) {
@@ -1102,6 +1136,15 @@ export default function MaterialPublish() {
                           const postIdsValue = publishStatusData.post_ids.join(',');
                           await materialTable.setCellValue(postIdsField.id, record.recordId, postIdsValue);
                           console.log(`✅ 已保存 post_ids: ${postIdsValue}`);
+
+                          // 备份到 MySQL（不阻塞主流程）
+                          backupMaterialToDb({
+                            recordId: record.recordId,
+                            publishStatus: '已发布',
+                            publishAccount: openId,
+                            shareId,
+                            postIds: postIdsValue,
+                          });
                         } catch (e) {
                           console.warn(`保存 post_ids 失败:`, e);
                         }
@@ -1151,6 +1194,16 @@ export default function MaterialPublish() {
                         try {
                           await materialTable.setCellValue(tiktokLinkField.id, record.recordId, tiktokVideoUrl);
                           console.log(`✅ 已保存 TikTok视频链接: ${tiktokVideoUrl}`);
+
+                          // 备份到 MySQL（不阻塞主流程）
+                          backupMaterialToDb({
+                            recordId: record.recordId,
+                            publishStatus: '已发布',
+                            publishAccount: openId,
+                            shareId,
+                            postIds: Array.isArray(publishStatusData.post_ids) ? publishStatusData.post_ids.join(',') : undefined,
+                            tiktokVideoUrl,
+                          });
                         } catch (e) {
                           console.warn(`保存 TikTok视频链接 失败:`, e);
                         }
@@ -1458,6 +1511,15 @@ export default function MaterialPublish() {
                   const postIdsValue = publishStatusData.post_ids.join(',');
                   await materialTable.setCellValue(postIdsField.id, record.recordId, postIdsValue);
                   console.log(`✅ 已保存 post_ids: ${postIdsValue}`);
+
+                  // 备份到 MySQL（不阻塞主流程）
+                  backupMaterialToDb({
+                    recordId: record.recordId,
+                    publishStatus: '已发布',
+                    publishAccount: openId,
+                    shareId,
+                    postIds: postIdsValue,
+                  });
                 } catch (e) {
                   console.warn(`保存 post_ids 失败:`, e);
                 }
@@ -1507,6 +1569,16 @@ export default function MaterialPublish() {
                 try {
                   await materialTable.setCellValue(tiktokLinkField.id, record.recordId, tiktokVideoUrl);
                   console.log(`✅ 已保存 TikTok视频链接: ${tiktokVideoUrl}`);
+
+                  // 备份到 MySQL（不阻塞主流程）
+                  backupMaterialToDb({
+                    recordId: record.recordId,
+                    publishStatus: '已发布',
+                    publishAccount: openId,
+                    shareId,
+                    postIds: Array.isArray(publishStatusData.post_ids) ? publishStatusData.post_ids.join(',') : undefined,
+                    tiktokVideoUrl,
+                  });
                 } catch (e) {
                   console.warn(`保存 TikTok视频链接 失败:`, e);
                 }

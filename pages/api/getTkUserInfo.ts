@@ -16,7 +16,8 @@ export default async function handler(
 ) {
   // 只允许 GET 请求
   if (req.method !== 'GET') {
-    res.status(405).json({ error: 'Method not allowed' })
+    // 统一返回 200：让前端通过 code/message 处理
+    res.status(200).json({ code: -1, error: 'Method not allowed', message: 'Method not allowed' })
     return
   }
 
@@ -25,9 +26,11 @@ export default async function handler(
 
   // 验证必需参数
   if (!access_token || !open_id) {
-    res.status(400).json({ 
+    // 统一返回 200：让前端通过 code/message 处理
+    res.status(200).json({ 
       code: -1,
-      error: 'Missing required parameters: access_token and open_id are both required' 
+      error: 'Missing required parameters: access_token and open_id are both required',
+      message: 'Missing required parameters: access_token and open_id are both required'
     })
     return
   }
