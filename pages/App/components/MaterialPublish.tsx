@@ -748,8 +748,8 @@ export default function MaterialPublish() {
             continue;
           }
 
-          // 验证 access_token 格式
-          const accessToken = String(accountInfo.accessToken).trim();
+          // 验证 access_token 格式（失败时可重试刷新）
+          let accessToken = String(accountInfo.accessToken).trim();
           if (!accessToken || accessToken.length < 10) {
             console.error(`记录 ${record.recordId} 的 access_token 格式无效: ${accessToken.substring(0, 20)}...`);
             Toast.error(`素材 ${record.recordId} 的 access_token 格式无效，请更新账号信息`);
@@ -988,26 +988,72 @@ export default function MaterialPublish() {
             caption: caption?.substring(0, 50) + '...'
           });
 
-          // 调用发布API
+          // 调用发布API（如果 token 过期/无效，自动刷新并重试一次）
           try {
-            console.log(`正在调用发布API...`);
-            const publishResponse = await fetch(PUBLISH_VIDEO_API, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(publishData)
-            });
+            const tryPublish = async (token: string) => {
+              const payload = { ...publishData, access_token: token };
+              console.log(`正在调用发布API...`);
+              const publishResponse = await fetch(PUBLISH_VIDEO_API, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+              });
+              console.log(`发布API响应状态: ${publishResponse.status} ${publishResponse.statusText}`);
 
-            console.log(`发布API响应状态: ${publishResponse.status} ${publishResponse.statusText}`);
-            
-            const publishResult = await publishResponse.json();
-            console.log(`发布API返回结果:`, {
-              code: publishResult.code,
-              message: publishResult.message,
-              error: publishResult.error,
-              error_code: publishResult.error_code
-            });
+              const publishResult = await publishResponse.json();
+              console.log(`发布API返回结果:`, {
+                code: publishResult.code,
+                message: publishResult.message,
+                error: publishResult.error,
+                error_code: publishResult.error_code,
+              });
+              return publishResult;
+            };
+
+            const isTokenError = (result: any) => {
+              const msg = String(result?.message || result?.error || '');
+              const errorCode = result?.error_code ?? result?.code;
+              return (
+                msg.toLowerCase().includes('access token') ||
+                msg.toLowerCase().includes('token') ||
+                msg.toLowerCase().includes('revoked') ||
+                msg.toLowerCase().includes('expired') ||
+                errorCode === 40101 ||
+                errorCode === 40102
+              );
+            };
+
+            let publishResult = await tryPublish(accessToken);
+
+            // token 无效兜底：refresh_token 刷新后重试一次
+            if (publishResult?.code !== 0 && isTokenError(publishResult) && refreshTokenField && accountInfo?.recordId) {
+              try {
+                const refreshTokenValue = await getFieldStringValue(accountTable, refreshTokenField, accountInfo.recordId);
+                if (refreshTokenValue) {
+                  const newTokenData = await refreshToken(String(refreshTokenValue).trim());
+
+                  const updateFields: Record<string, any> = {};
+                  updateFields[accessTokenField.id] = newTokenData.access_token;
+
+                  if (refreshTokenField && newTokenData.refresh_token) {
+                    updateFields[refreshTokenField.id] = newTokenData.refresh_token;
+                  }
+
+                  if (tokenExpiresTimeField && newTokenData.expires_in) {
+                    const nowTs = Date.now();
+                    updateFields[tokenExpiresTimeField.id] = nowTs + newTokenData.expires_in * 1000;
+                  }
+
+                  await accountTable.setRecord(accountInfo.recordId, { fields: updateFields });
+                  accessToken = String(newTokenData.access_token).trim();
+                  publishResult = await tryPublish(accessToken);
+                }
+              } catch (refreshErr: any) {
+                console.warn(`⚠️ token 刷新后重试发布失败:`, refreshErr);
+              }
+            }
 
             if (publishResult.code === 0 && publishResult.data) {
               // 发布成功
