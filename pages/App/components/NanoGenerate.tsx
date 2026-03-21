@@ -1,6 +1,6 @@
 'use client'
 import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
-import { Button, Form, Toast, Typography, Space, Progress, Card, Banner, Divider } from '@douyinfe/semi-ui';
+import { Button, Form, Toast, Typography, Space, Progress, Card, Banner, Divider, Modal } from '@douyinfe/semi-ui';
 import { IconImage, IconRefresh } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
@@ -98,6 +98,8 @@ export default function NanoGenerate() {
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('');
   const [userApiKey, setUserApiKey] = useState('');
+  const [credits, setCredits] = useState<number | null>(null);
+  const [showRecharge, setShowRecharge] = useState(false);
   const formApi = useRef<BaseFormApi>();
 
   // 获取附件临时下载链接
@@ -535,8 +537,24 @@ export default function NanoGenerate() {
   useEffect(() => {
     Promise.all([
       bitable.base.getTableMetaList(),
-    ]).then(([metaList]) => {
+      bitable.bridge.getUserId(),
+    ]).then(([metaList, userId]) => {
       setTableMetaList(metaList);
+      if (userId) {
+        fetch('/api/initUser', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId }),
+        })
+          .then(r => r.json())
+          .then(res => {
+            if (res.code === 0) {
+              setUserApiKey(res.data.api_key);
+              setCredits(res.data.credits);
+            }
+          })
+          .catch(err => console.error('initUser 失败:', err));
+      }
     });
   }, []);
 
@@ -597,12 +615,20 @@ export default function NanoGenerate() {
           onSubmit={handleBatchGenerate}
           getFormApi={(baseFormApi: BaseFormApi) => formApi.current = baseFormApi}
         >
-          {/* 密钥输入 */}
+          {/* 密钥 + 积分 + 充值 */}
           <div style={{ marginBottom: 16 }}>
-            <Text strong size="small" style={{ display: 'block', marginBottom: 6 }}>密钥</Text>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Text strong size="small">密钥</Text>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {credits !== null && (
+                  <Text size="small" type="tertiary">积分：<Text strong style={{ color: credits < 2 ? 'var(--semi-color-danger)' : 'var(--semi-color-success)' }}>{credits}</Text></Text>
+                )}
+                <Button size="small" theme="borderless" style={{ padding: '0 6px', color: 'var(--semi-color-primary)' }} onClick={() => setShowRecharge(true)}>充值</Button>
+              </div>
+            </div>
             <input
-              type="password"
-              placeholder="请输入密钥（积分不足请添加微信 GOV156 充值）"
+              type="text"
+              placeholder="正在加载密钥..."
               value={userApiKey}
               onChange={(e) => setUserApiKey(e.target.value)}
               style={{
@@ -618,6 +644,22 @@ export default function NanoGenerate() {
               }}
             />
           </div>
+
+          {/* 充值弹窗 */}
+          <Modal
+            title="扫码充值积分"
+            visible={showRecharge}
+            onCancel={() => setShowRecharge(false)}
+            footer={null}
+            centered
+            width={280}
+          >
+            <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
+              <img src="/wx.jpg" alt="微信二维码" style={{ width: 200, height: 200, borderRadius: 8 }} />
+              <Text type="tertiary" size="small" style={{ display: 'block', marginTop: 12 }}>微信扫码，备注「充值积分」</Text>
+              <Text strong style={{ display: 'block', marginTop: 4 }}>GOV156</Text>
+            </div>
+          </Modal>
 
           <Form.Select
             field='dataTable'
