@@ -97,6 +97,7 @@ export default function NanoGenerate() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('');
+  const [userApiKey, setUserApiKey] = useState('');
   const formApi = useRef<BaseFormApi>();
 
   // 获取附件临时下载链接
@@ -188,6 +189,11 @@ export default function NanoGenerate() {
   }) => {
     if (!dataTableId) {
       Toast.error('请选择数据表');
+      return;
+    }
+
+    if (!userApiKey.trim()) {
+      Toast.error('请输入密钥');
       return;
     }
 
@@ -315,10 +321,17 @@ export default function NanoGenerate() {
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify({ ...payload, user_api_key: userApiKey.trim() }),
           });
 
           const result = await response.json();
+
+          // 积分不足或密钥无效
+          if (result.code === -2) {
+            Toast.error(result.error || '积分不足，请添加微信 GOV156 充值积分');
+            setLoading(false);
+            return;
+          }
 
           if (result.code === 0 && result.data) {
             // 获取任务ID
@@ -579,15 +592,37 @@ export default function NanoGenerate() {
           <div style={styles.stepItem}>• 生成的图像链接有效期24小时，请及时保存</div>
         </div>
 
-        <Form 
-          labelPosition='top' 
-          onSubmit={handleBatchGenerate} 
+        <Form
+          labelPosition='top'
+          onSubmit={handleBatchGenerate}
           getFormApi={(baseFormApi: BaseFormApi) => formApi.current = baseFormApi}
         >
-          <Form.Select 
-            field='dataTable' 
+          {/* 密钥输入 */}
+          <div style={{ marginBottom: 16 }}>
+            <Text strong size="small" style={{ display: 'block', marginBottom: 6 }}>密钥</Text>
+            <input
+              type="password"
+              placeholder="请输入密钥（积分不足请添加微信 GOV156 充值）"
+              value={userApiKey}
+              onChange={(e) => setUserApiKey(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: 6,
+                border: '1px solid var(--semi-color-border)',
+                background: 'var(--semi-color-bg-2)',
+                color: 'var(--semi-color-text-0)',
+                fontSize: 14,
+                boxSizing: 'border-box',
+                outline: 'none',
+              }}
+            />
+          </div>
+
+          <Form.Select
+            field='dataTable'
             label='数据表'
-            placeholder="选择包含图像提示词的数据表" 
+            placeholder="选择包含图像提示词的数据表"
             style={{ width: '100%' }}
           >
             {Array.isArray(tableMetaList) && tableMetaList.map(({ name, id }) => (

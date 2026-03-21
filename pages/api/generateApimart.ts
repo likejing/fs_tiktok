@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { checkCredits, deductCredits, CREDIT_COSTS } from '../../lib/credits';
 
 // 增加 API 路由超时配置（Next.js 13+）
 export const config = {
@@ -44,10 +45,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     storyboard,
     character_url,
     character_timestamps,
+    user_api_key,
   } = req.body || {};
 
   if (!prompt) {
     res.status(400).json({ code: -1, error: 'Missing required parameter: prompt' });
+    return;
+  }
+
+  // 积分校验
+  if (!user_api_key) {
+    res.status(400).json({ code: -2, error: '请输入密钥' });
+    return;
+  }
+  const creditCheck = await checkCredits(user_api_key, CREDIT_COSTS.AI_VIDEO);
+  if (!creditCheck.valid) {
+    res.status(200).json({ code: -2, error: '密钥无效，请添加微信 GOV156 充值积分' });
+    return;
+  }
+  if (!creditCheck.enough) {
+    res.status(200).json({ code: -2, error: `积分不足（当前 ${creditCheck.credits} 分，需要 ${CREDIT_COSTS.AI_VIDEO} 分），请添加微信 GOV156 充值积分` });
     return;
   }
 
@@ -104,7 +121,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
       // Apimart API 返回格式: {"code":200,"data":[...]} 或 {"code":非200,"error":"..."}
       if (data.code === 200 || response.ok) {
-        // 成功：返回 data 字段
+        // 成功：扣减积分
+        await deductCredits(user_api_key, CREDIT_COSTS.AI_VIDEO).catch(err =>
+          console.error('扣减积分失败:', err)
+        );
         const resultData = data.data || data;
         console.log('Apimart API 成功，返回数据:', JSON.stringify(resultData));
         res.status(200).json({ code: 0, data: resultData });

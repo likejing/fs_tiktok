@@ -129,5 +129,16 @@ CREATE TABLE IF NOT EXISTS operation_logs (
   INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='操作日志表';
 
+-- 7. 用户密钥与积分表
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  api_key VARCHAR(64) UNIQUE NOT NULL COMMENT '用户密钥',
+  credits INT NOT NULL DEFAULT 0 COMMENT '剩余积分',
+  remark VARCHAR(200) COMMENT '备注（如用户名/联系方式）',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_api_key (api_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户密钥与积分表';
+
 -- 创建完成
 SELECT 'Database initialization completed!' AS message;
