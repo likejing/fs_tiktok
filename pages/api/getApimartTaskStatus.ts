@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { refundTaskCredits } from '../../lib/credits';
 
 type ApiResponse = {
   code?: number;
@@ -19,7 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return;
   }
 
-  const { task_id, language = 'zh' } = req.query;
+  const { task_id, language = 'zh', user_api_key } = req.query;
 
   if (!task_id || typeof task_id !== 'string') {
     res.status(400).json({ code: -1, error: 'Missing or invalid task_id' });
@@ -49,7 +50,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return;
     }
 
-    res.status(200).json({ code: 0, data: data?.data || data });
+    const taskData = data?.data || data;
+    const status = String(taskData?.status || '').toLowerCase();
+    const isFailedStatus =
+      status === 'failed' ||
+      status === 'error' ||
+      status === 'cancelled' ||
+      status === 'canceled';
+
+    // 任务失败时返还积分（只返还一次）
+    if (isFailedStatus && user_api_key && typeof user_api_key === 'string') {
+      const refunded = await refundTaskCredits({
+        apiKey: user_api_key,
+        taskId: task_id,
+        reason: taskData?.error || taskData?.message || status,
+      }).catch(err => {
+        console.error('返还积分失败:', err);
+        return false;
+      });
+      if (refunded) {
+        console.log(`✅ 任务 ${task_id} 失败，已返还积分`);
+      }
+    }
+
+    res.status(200).json({ code: 0, data: taskData });
   } catch (error: any) {
     res.status(500).json({
       code: -1,

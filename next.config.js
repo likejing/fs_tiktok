@@ -1,7 +1,9 @@
 /** @type {import('next').NextConfig} */
 
-// 是否为生产打包模式（用于插件上架）
-const isExport = process.env.BUILD_MODE === 'export';
+// 仅在 build:export 脚本下启用静态导出，避免运行时被环境变量污染
+const isExport =
+  process.env.BUILD_MODE === 'export' &&
+  process.env.npm_lifecycle_event === 'build:export';
 
 const nextConfig = {
   reactStrictMode: true,

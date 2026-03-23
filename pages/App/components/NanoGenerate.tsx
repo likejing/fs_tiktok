@@ -1,13 +1,16 @@
 'use client'
 import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
 import { Button, Form, Toast, Typography, Space, Progress, Card, Banner, Divider, Modal } from '@douyinfe/semi-ui';
-import { IconImage, IconRefresh } from '@douyinfe/semi-icons';
+import { IconImage, IconRefresh, IconCopy } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { getFieldStringValue, findOrCreateField } from '../../../lib/fieldUtils';
 import { APIMART_NANO_IMAGE_API, APIMART_TASK_STATUS_API, UPLOAD_TO_OSS_API, PROXY_DOWNLOAD_API } from '../../../lib/constants';
+import { getImageGenerationCredits } from '../../../lib/creditRules';
 
 const { Title, Text } = Typography;
+
+// 根据URL生成一致的密钥
 
 // Nano API 参数配置
 const NANO_CONFIG = {
@@ -98,9 +101,17 @@ export default function NanoGenerate() {
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('');
   const [userApiKey, setUserApiKey] = useState('');
+  const [keyLoading, setKeyLoading] = useState(true);
   const [credits, setCredits] = useState<number | null>(null);
   const [showRecharge, setShowRecharge] = useState(false);
+  /** 因积分不足自动弹出时为 true */
+  const [rechargeUrgent, setRechargeUrgent] = useState(false);
   const formApi = useRef<BaseFormApi>();
+
+  const openRechargeModal = useCallback((urgent: boolean) => {
+    setRechargeUrgent(urgent);
+    setShowRecharge(true);
+  }, []);
 
   // 获取附件临时下载链接
   const getAttachmentTempUrls = async (table: any, field: any, recordId: string): Promise<Array<{ url: string; name: string }>> => {
@@ -194,7 +205,9 @@ export default function NanoGenerate() {
       return;
     }
 
-    if (!userApiKey.trim()) {
+    // 兼容 useCallback 闭包旧值：提交时实时读取 state/localStorage 中的密钥
+    const effectiveApiKey = (userApiKey || localStorage.getItem('user_api_key') || '').trim();
+    if (!effectiveApiKey) {
       Toast.error('请输入密钥');
       return;
     }
@@ -268,6 +281,31 @@ export default function NanoGenerate() {
         return;
       }
 
+      let maxImageCredits = 0;
+      for (const record of recordsToGenerate) {
+        const resolutionValue = resolutionField
+          ? await getFieldStringValue(table, resolutionField, record.recordId)
+          : null;
+        const resStr = parseResolution(resolutionValue);
+        const c = getImageGenerationCredits(NANO_CONFIG.model, resStr);
+        maxImageCredits = Math.max(maxImageCredits, c);
+      }
+      try {
+        const creditRes = await fetch('/api/checkCredits', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: effectiveApiKey, cost: maxImageCredits }),
+        }).then((r) => r.json());
+        if (creditRes.code === 0 && creditRes.data && !creditRes.data.enough) {
+          openRechargeModal(true);
+          setStatus('积分不足，请扫码加微信充值');
+          setLoading(false);
+          return;
+        }
+      } catch {
+        /* 预检失败不阻断 */
+      }
+
       setStatus(`找到 ${recordsToGenerate.length} 条需要生成的记录`);
 
       let successCount = 0;
@@ -323,15 +361,17 @@ export default function NanoGenerate() {
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ ...payload, user_api_key: userApiKey.trim() }),
+            body: JSON.stringify({ ...payload, user_api_key: effectiveApiKey }),
           });
 
           const result = await response.json();
 
-          // 积分不足或密钥无效
+          // 积分不足或密钥无效：弹出充值框（强提示），不用弱 Toast
           if (result.code === -2) {
-            Toast.error(result.error || '积分不足，请添加微信 GOV156 充值积分');
+            openRechargeModal(true);
             setLoading(false);
+            setProgress(0);
+            setStatus('积分不足，请扫码加微信充值');
             return;
           }
 
@@ -382,8 +422,7 @@ export default function NanoGenerate() {
       setLoading(false);
       setProgress(0);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userApiKey, openRechargeModal]);
 
   // 更新任务状态
   const handleUpdateStatus = useCallback(async () => {
@@ -452,7 +491,9 @@ export default function NanoGenerate() {
 
         try {
           // 查询任务状态
-          const response = await fetch(`${APIMART_TASK_STATUS_API}?task_id=${encodeURIComponent(taskId)}`);
+          const response = await fetch(
+            `${APIMART_TASK_STATUS_API}?task_id=${encodeURIComponent(taskId)}&user_api_key=${encodeURIComponent((userApiKey || '').trim())}`
+          );
           const result = await response.json();
 
           if (result.code === 0 && result.data) {
@@ -535,27 +576,91 @@ export default function NanoGenerate() {
   }, []);
 
   useEffect(() => {
-    Promise.all([
-      bitable.base.getTableMetaList(),
-      bitable.bridge.getUserId(),
-    ]).then(([metaList, userId]) => {
-      setTableMetaList(metaList);
-      if (userId) {
-        fetch('/api/initUser', {
+    setKeyLoading(true);
+
+    // 从云端同步积分（每次加载都同步）
+    const syncCredits = async (apiKey: string) => {
+      try {
+        const res = await fetch('/api/checkCredits', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId }),
-        })
-          .then(r => r.json())
-          .then(res => {
-            if (res.code === 0) {
-              setUserApiKey(res.data.api_key);
-              setCredits(res.data.credits);
-            }
-          })
-          .catch(err => console.error('initUser 失败:', err));
+          body: JSON.stringify({ api_key: apiKey, cost: 0 }),
+        }).then(r => r.json());
+
+        if (res.code === 0) {
+          setCredits(res.data.credits);
+          localStorage.setItem('user_credits', res.data.credits.toString());
+        }
+      } catch (err) {
+        console.error('同步积分失败:', err);
       }
-    });
+    };
+
+    // 使用飞书身份初始化用户密钥：tenantKey + baseUserId
+    const initUserInfo = async () => {
+      try {
+        let resolvedApiKey = '';
+
+        if (typeof bitable !== 'undefined' && bitable?.base?.getTableMetaList) {
+          const bridgeAny: any = bitable.bridge as any;
+          const baseUserIdPromise =
+            typeof bridgeAny?.getBaseUserId === 'function'
+              ? bridgeAny.getBaseUserId().catch(() => '')
+              : bitable.bridge.getUserId().catch(() => '');
+          const tenantKeyPromise =
+            typeof bridgeAny?.getTenantKey === 'function'
+              ? bridgeAny.getTenantKey().catch(() => '')
+              : Promise.resolve('');
+
+          const [metaList, baseUserId, tenantKey] = await Promise.all([
+            bitable.base.getTableMetaList(),
+            baseUserIdPromise,
+            tenantKeyPromise,
+          ]);
+
+          setTableMetaList(metaList);
+
+          const res = await fetch('/api/initUser', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              base_user_id: baseUserId || undefined,
+              tenant_key: tenantKey || undefined,
+            }),
+          }).then(r => r.json());
+
+          if (res.code === 0 && res.data?.api_key) {
+            resolvedApiKey = String(res.data.api_key);
+            const userCredits = Number(res.data.credits ?? 0);
+            setUserApiKey(resolvedApiKey);
+            setCredits(userCredits);
+            localStorage.setItem('user_api_key', resolvedApiKey);
+            localStorage.setItem('user_credits', userCredits.toString());
+            await syncCredits(resolvedApiKey);
+            return;
+          }
+        }
+        // 飞书环境不可用时，回退到已缓存密钥（避免阻塞）
+        const cachedKey = (localStorage.getItem('user_api_key') || '').trim();
+        const cachedCredits = localStorage.getItem('user_credits');
+        if (cachedKey) {
+          resolvedApiKey = cachedKey;
+          setUserApiKey(cachedKey);
+          setCredits(cachedCredits ? parseFloat(cachedCredits) : null);
+          await syncCredits(cachedKey);
+          return;
+        }
+
+        setCredits(null);
+        Toast.warning('未获取到飞书用户身份，请在飞书插件环境中打开');
+      } catch (err) {
+        console.log('初始化用户信息失败', err);
+      } finally {
+        setKeyLoading(false);
+      }
+    };
+
+    initUserInfo();
   }, []);
 
   // 表列表加载后，默认选中名为「Nano图像生成」的数据表
@@ -620,44 +725,96 @@ export default function NanoGenerate() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
               <Text strong size="small">密钥</Text>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {credits !== null && (
-                  <Text size="small" type="tertiary">积分：<Text strong style={{ color: credits < 2 ? 'var(--semi-color-danger)' : 'var(--semi-color-success)' }}>{credits}</Text></Text>
-                )}
-                <Button size="small" theme="borderless" style={{ padding: '0 6px', color: 'var(--semi-color-primary)' }} onClick={() => setShowRecharge(true)}>充值</Button>
+                <Text size="small" type="tertiary">积分：<Text strong style={{ color: (credits ?? 0) < 5 ? 'var(--semi-color-danger)' : 'var(--semi-color-success)' }}>{credits ?? 0}</Text></Text>
+                <Button
+                  size="small"
+                  theme="borderless"
+                  icon={<IconRefresh />}
+                  style={{ padding: '0 4px', color: 'var(--semi-color-primary)' }}
+                  onClick={async () => {
+                    if (!userApiKey) return;
+                    try {
+                      const res = await fetch('/api/checkCredits', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ api_key: userApiKey, cost: 0 }),
+                      }).then(r => r.json());
+                      if (res.code === 0) {
+                        setCredits(res.data.credits);
+                        localStorage.setItem('user_credits', res.data.credits.toString());
+                        Toast.success('积分已刷新');
+                      }
+                    } catch (err) {
+                      Toast.error('刷新失败');
+                    }
+                  }}
+                />
+                <Button size="small" theme="borderless" style={{ padding: '0 6px', color: 'var(--semi-color-primary)' }} onClick={() => openRechargeModal(false)}>充值</Button>
               </div>
             </div>
-            <input
-              type="text"
-              placeholder="正在加载密钥..."
-              value={userApiKey}
-              onChange={(e) => setUserApiKey(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: 6,
-                border: '1px solid var(--semi-color-border)',
-                background: 'var(--semi-color-bg-2)',
-                color: 'var(--semi-color-text-0)',
-                fontSize: 14,
-                boxSizing: 'border-box',
-                outline: 'none',
-              }}
-            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                placeholder={keyLoading ? '正在加载密钥...' : '请输入密钥'}
+                value={userApiKey}
+                disabled={keyLoading}
+                readOnly
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  border: '1px solid var(--semi-color-border)',
+                  background: 'var(--semi-color-bg-2)',
+                  color: 'var(--semi-color-text-0)',
+                  fontSize: 14,
+                  boxSizing: 'border-box',
+                  outline: 'none',
+                  opacity: keyLoading ? 0.6 : 1,
+                }}
+              />
+              <Button
+                icon={<IconCopy />}
+                theme="borderless"
+                style={{ padding: '0 8px', color: 'var(--semi-color-primary)' }}
+                onClick={() => {
+                  if (userApiKey) {
+                    navigator.clipboard.writeText(userApiKey);
+                    Toast.success('密钥已复制');
+                  }
+                }}
+                disabled={!userApiKey}
+              />
+            </div>
           </div>
 
-          {/* 充值弹窗 */}
+          {/* 充值弹窗（积分不足时自动打开） */}
           <Modal
-            title="扫码充值积分"
+            title={rechargeUrgent ? '积分不足 · 请扫码加微信充值' : '扫码充值积分'}
             visible={showRecharge}
-            onCancel={() => setShowRecharge(false)}
+            onCancel={() => {
+              setShowRecharge(false);
+              setRechargeUrgent(false);
+            }}
             footer={null}
             centered
-            width={280}
+            width={320}
           >
-            <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
-              <img src="/wx.jpg" alt="微信二维码" style={{ width: 200, height: 200, borderRadius: 8 }} />
-              <Text type="tertiary" size="small" style={{ display: 'block', marginTop: 12 }}>微信扫码，备注「充值积分」</Text>
-              <Text strong style={{ display: 'block', marginTop: 4 }}>GOV156</Text>
+            <div style={{ padding: '0 0 8px' }}>
+              {rechargeUrgent && (
+                <Banner
+                  type="danger"
+                  fullMode
+                  style={{ marginBottom: 16 }}
+                  title="当前积分不足以完成本次生成"
+                  description="请扫描下方二维码添加微信，转账或联系客服充值，备注「充值积分」。充值完成后可点击「刷新」同步积分。"
+                />
+              )}
+              <div style={{ textAlign: 'center' }}>
+                <img src="/wx.jpg" alt="微信二维码" style={{ width: 200, height: 200, borderRadius: 8 }} />
+                <Text strong style={{ display: 'block', marginTop: 14, fontSize: 15 }}>扫码加微信 · 充值积分</Text>
+                <Text type="tertiary" size="small" style={{ display: 'block', marginTop: 8 }}>备注「充值积分」，微信号</Text>
+                <Text strong style={{ display: 'block', marginTop: 4, fontSize: 16, color: 'var(--semi-color-primary)' }}>GOV156</Text>
+              </div>
             </div>
           </Modal>
 

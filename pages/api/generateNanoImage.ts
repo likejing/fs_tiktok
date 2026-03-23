@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { checkCredits, deductCredits, CREDIT_COSTS } from '../../lib/credits';
+import { checkCredits, deductAndRecordTaskCredits } from '../../lib/credits';
+import { getImageGenerationCredits } from '../../lib/creditRules';
 
 // API 配置
 export const config = {
@@ -45,18 +46,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return;
   }
 
+  const creditCost = getImageGenerationCredits(model, resolution);
+
   // 积分校验
   if (!user_api_key) {
     res.status(400).json({ code: -2, error: '请输入密钥' });
     return;
   }
-  const creditCheck = await checkCredits(user_api_key, CREDIT_COSTS.NANO_IMAGE);
+  const creditCheck = await checkCredits(user_api_key, creditCost);
   if (!creditCheck.valid) {
     res.status(200).json({ code: -2, error: '密钥无效，请添加微信 GOV156 充值积分' });
     return;
   }
   if (!creditCheck.enough) {
-    res.status(200).json({ code: -2, error: `积分不足（当前 ${creditCheck.credits} 分，需要 ${CREDIT_COSTS.NANO_IMAGE} 分），请添加微信 GOV156 充值积分` });
+    res.status(200).json({
+      code: -2,
+      error: `积分不足（当前 ${creditCheck.credits} 分，需要 ${creditCost} 分），请添加微信 GOV156 充值积分`,
+    });
     return;
   }
 
@@ -111,11 +117,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
       // Apimart API 返回格式: {"code":200,"data":[{"status":"submitted","task_id":"..."}]}
       if (data.code === 200 || response.ok) {
-        // 成功：扣减积分
-        await deductCredits(user_api_key, CREDIT_COSTS.NANO_IMAGE).catch(err =>
-          console.error('扣减积分失败:', err)
-        );
         const resultData = data.data || data;
+        const firstTask = Array.isArray(resultData) ? resultData[0] : resultData;
+        const taskId = firstTask?.task_id ? String(firstTask.task_id) : null;
+
+        if (!taskId) {
+          console.error('Nano Image API 返回成功但缺少 task_id:', JSON.stringify(data));
+          res.status(200).json({
+            code: -3,
+            error: '服务响应异常（缺少任务ID），请联系客服添加微信 GOV156 处理',
+          });
+          return;
+        }
+
+        const deducted = await deductAndRecordTaskCredits({
+          apiKey: user_api_key,
+          taskId,
+          taskType: 'nano_image',
+          cost: creditCost,
+        });
+        if (!deducted) {
+          res.status(200).json({
+            code: -2,
+            error: '积分扣减失败（可能积分不足或并发冲突），请重试',
+          });
+          return;
+        }
         console.log('Nano Image API 成功，返回数据:', JSON.stringify(resultData));
         res.status(200).json({ code: 0, data: resultData });
       } else {

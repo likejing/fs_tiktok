@@ -1,13 +1,15 @@
 'use client'
 import { bitable, ITableMeta, FieldType } from "@lark-base-open/js-sdk";
 import { Button, Form, Toast, Typography, Space, Progress, Card, Banner, Divider, Modal } from '@douyinfe/semi-ui';
-import { IconStar, IconRefresh } from '@douyinfe/semi-icons';
+import { IconStar, IconRefresh, IconCopy } from '@douyinfe/semi-icons';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BaseFormApi } from '@douyinfe/semi-foundation/lib/es/form/interface';
 import { getFieldStringValue, findOrCreateField } from '../../../lib/fieldUtils';
 import { APIMART_VIDEO_GENERATE_API, APIMART_TASK_STATUS_API, UPLOAD_TO_OSS_API } from '../../../lib/constants';
+import { getVideoGenerationCredits } from '../../../lib/creditRules';
 
 const { Title, Text } = Typography;
+
 
 // Sora2 API 参数配置
 // 必填参数: model, prompt
@@ -78,9 +80,17 @@ export default function AIGenerate() {
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('');
   const [userApiKey, setUserApiKey] = useState('');
+  const [keyLoading, setKeyLoading] = useState(true);
   const [credits, setCredits] = useState<number | null>(null);
   const [showRecharge, setShowRecharge] = useState(false);
+  /** 因积分不足自动弹出时为 true，用于弹窗内强提示 */
+  const [rechargeUrgent, setRechargeUrgent] = useState(false);
   const formApi = useRef<BaseFormApi>();
+
+  const openRechargeModal = useCallback((urgent: boolean) => {
+    setRechargeUrgent(urgent);
+    setShowRecharge(true);
+  }, []);
 
   // 获取附件临时下载链接
   const getAttachmentTempUrls = async (table: any, field: any, recordId: string): Promise<Array<{ url: string; name: string }>> => {
@@ -234,11 +244,12 @@ export default function AIGenerate() {
     return found?.value || undefined;
   };
 
-  // 解析视频引擎（Sora2 / Veo3）
-  const parseVideoEngine = (model: string | null): 'sora' | 'veo' => {
+  // 解析视频引擎（Sora2 / Veo3 fast / Veo3 quality）
+  const parseVideoEngine = (model: string | null): 'sora' | 'veo_fast' | 'veo_quality' => {
     if (!model) return 'sora';
     const v = model.toLowerCase().trim();
-    if (v.includes('veo')) return 'veo';
+    if (v.includes('quality') && v.includes('veo')) return 'veo_quality';
+    if (v.includes('veo')) return 'veo_fast';
     return 'sora';
   };
 
@@ -275,17 +286,20 @@ export default function AIGenerate() {
     const engine = parseVideoEngine(fieldValues.videoModel || null);
 
     // 解析通用字段
-    const durationSec = engine === 'veo'
-      ? 8
-      : parseDuration(fieldValues.duration || null);
+    const durationSec =
+      engine === 'veo_fast' || engine === 'veo_quality'
+        ? 8
+        : parseDuration(fieldValues.duration || null);
     const aspectRatio = parseAspectRatio(fieldValues.orientation || null);
 
     // 根据引擎选择模型
     // 注意：sora-2 暂时不可用，统一使用 sora-2-pro
     const model =
-      engine === 'veo'
-        ? 'veo3.1-fast'
-        : 'sora-2-pro';
+      engine === 'veo_quality'
+        ? 'veo3.1-quality'
+        : engine === 'veo_fast'
+          ? 'veo3.1-fast'
+          : 'sora-2-pro';
 
     // 构建必填参数
     const payload: Record<string, any> = {
@@ -299,7 +313,8 @@ export default function AIGenerate() {
 
     if (imageUrls.length > 0) {
       // Veo3 最多支持 3 张参考图
-      payload.image_urls = engine === 'veo' ? imageUrls.slice(0, 3) : imageUrls;
+      payload.image_urls =
+        engine === 'veo_fast' || engine === 'veo_quality' ? imageUrls.slice(0, 3) : imageUrls;
     }
 
     if (engine === 'sora') {
@@ -369,6 +384,10 @@ export default function AIGenerate() {
     return payload;
   };
 
+  /** 提交请求时取密钥：兼容 useCallback 闭包滞后、与 localStorage 同步写入的时序 */
+  const getEffectiveUserApiKey = () =>
+    (userApiKey || localStorage.getItem('user_api_key') || '').trim();
+
   // 调用 Apimart 视频生成接口（返回异步任务）
   const createApimartTask = async (payload: any): Promise<{ status: string; task_id: string }> => {
     try {
@@ -389,7 +408,7 @@ export default function AIGenerate() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ ...payload, user_api_key: userApiKey.trim() }),
+        body: JSON.stringify({ ...payload, user_api_key: getEffectiveUserApiKey() }),
         signal: controller.signal,
       });
 
@@ -420,9 +439,12 @@ export default function AIGenerate() {
       const result = await response.json();
       console.log('API 响应数据:', JSON.stringify(result));
 
-      // 积分不足或密钥无效
+      // 积分不足或密钥无效：弹出充值框，不用弱 Toast
       if (result.code === -2) {
-        throw new Error(result.error || '积分不足，请添加微信 GOV156 充值积分');
+        openRechargeModal(true);
+        const err: any = new Error(result.error || '积分不足');
+        err.openRechargeModal = true;
+        throw err;
       }
 
       // 检查业务状态码（Apimart 返回 code: 200 表示成功）
@@ -456,7 +478,9 @@ export default function AIGenerate() {
 
   // 根据任务ID获取任务状态和结果
   const fetchApimartTaskStatus = async (taskId: string) => {
-    const url = `${APIMART_TASK_STATUS_API}?task_id=${encodeURIComponent(taskId)}&language=zh`;
+    const url =
+      `${APIMART_TASK_STATUS_API}?task_id=${encodeURIComponent(taskId)}&language=zh` +
+      `&user_api_key=${encodeURIComponent(getEffectiveUserApiKey())}`;
     const response = await fetch(url);
     const result = await response.json();
 
@@ -479,10 +503,12 @@ export default function AIGenerate() {
       return;
     }
 
-    if (!userApiKey.trim()) {
+    if (!getEffectiveUserApiKey()) {
       Toast.error('请输入密钥');
       return;
     }
+
+    const apiKeyForCredit = getEffectiveUserApiKey();
 
     setLoading(true);
     setProgress(0);
@@ -601,6 +627,81 @@ export default function AIGenerate() {
       const totalRecords = records.records.length;
 
       console.log(`开始处理 ${totalRecords} 条记录`);
+
+      // 按本批最大单次视频扣费预检积分（与 docs/积分定价规则 一致）
+      const estimateRecordVideoCredits = async (recordId: string): Promise<number | null> => {
+        try {
+          if (shouldGenerateField) {
+            const shouldGenerate = await getFieldStringValue(table, shouldGenerateField, recordId);
+            if (shouldGenerate !== '是' && shouldGenerate !== 'true' && shouldGenerate !== 'True') {
+              return null;
+            }
+          }
+          if (sora2VideoField) {
+            try {
+              const attachmentField = await table.getFieldById(sora2VideoField.id);
+              const existingAttachments = await attachmentField.getValue(recordId);
+              if (Array.isArray(existingAttachments) && existingAttachments.length > 0) {
+                return null;
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          if (taskIdField) {
+            try {
+              const existingTaskId = await getFieldStringValue(table, taskIdField, recordId);
+              if (existingTaskId) return null;
+            } catch {
+              /* ignore */
+            }
+          }
+          const prompt = await getFieldStringValue(table, promptField, recordId);
+          if (!prompt) return null;
+          const fieldValues: GenerationFieldValues = {
+            orientation: orientationField ? await getFieldStringValue(table, orientationField, recordId) : null,
+            duration: durationField ? await getFieldStringValue(table, durationField, recordId) : null,
+            style: styleField ? await getFieldStringValue(table, styleField, recordId) : null,
+            watermark: watermarkField ? await getFieldStringValue(table, watermarkField, recordId) : null,
+            thumbnail: thumbnailField ? await getFieldStringValue(table, thumbnailField, recordId) : null,
+            privateMode: privateModeField ? await getFieldStringValue(table, privateModeField, recordId) : null,
+            storyboard: storyboardField ? await getFieldStringValue(table, storyboardField, recordId) : null,
+            characterUrl: characterUrlField ? await getFieldStringValue(table, characterUrlField, recordId) : null,
+            characterTimestamps: characterTimestampsField
+              ? await getFieldStringValue(table, characterTimestampsField, recordId)
+              : null,
+            videoModel: videoModelField ? await getFieldStringValue(table, videoModelField, recordId) : null,
+            resolution: resolutionField ? await getFieldStringValue(table, resolutionField, recordId) : null,
+          };
+          const payload = buildGenerationPayload(prompt, [], fieldValues);
+          return getVideoGenerationCredits(payload.model, payload.resolution);
+        } catch {
+          return null;
+        }
+      };
+
+      let maxVideoCredits = 0;
+      for (const rec of records.records) {
+        const c = await estimateRecordVideoCredits(rec.recordId);
+        if (c != null) maxVideoCredits = Math.max(maxVideoCredits, c);
+      }
+      if (maxVideoCredits > 0) {
+        try {
+          const creditRes = await fetch('/api/checkCredits', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: apiKeyForCredit, cost: maxVideoCredits }),
+          }).then((r) => r.json());
+          if (creditRes.code === 0 && creditRes.data && !creditRes.data.enough) {
+            openRechargeModal(true);
+            setStatus('积分不足，请扫码加微信充值');
+            setLoading(false);
+            return;
+          }
+        } catch {
+          /* 预检失败不阻断，由生成接口再校验 */
+        }
+      }
 
       // 遍历每条记录
       for (let i = 0; i < totalRecords; i++) {
@@ -730,6 +831,12 @@ export default function AIGenerate() {
           console.log(`✅ 记录 ${recordId} 任务创建成功，task_id=${task.task_id}, status=${task.status}`);
           successCount++;
         } catch (error: any) {
+          if (error?.openRechargeModal) {
+            setLoading(false);
+            setProgress(0);
+            setStatus('积分不足，请扫码加微信充值');
+            return;
+          }
           console.error(`处理记录 ${recordId} 失败:`, error);
           errorCount++;
           Toast.error(`记录 ${recordId} 生成失败: ${error.message || '未知错误'}`);
@@ -740,6 +847,10 @@ export default function AIGenerate() {
       Toast.success(`生成完成！成功: ${successCount}，跳过: ${skipCount}，失败: ${errorCount}`);
       setStatus(`生成完成！成功: ${successCount}，跳过: ${skipCount}，失败: ${errorCount}`);
     } catch (error: any) {
+      if (error?.openRechargeModal) {
+        setStatus('积分不足，请扫码加微信充值');
+        return;
+      }
       console.error('生成Sora2视频失败:', error);
       Toast.error(`生成失败: ${error.message || '未知错误'}`);
       setStatus(`生成失败: ${error.message || '未知错误'}`);
@@ -747,8 +858,7 @@ export default function AIGenerate() {
       setLoading(false);
       setProgress(0);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userApiKey, openRechargeModal]);
 
   // 更新任务状态并在完成后保存视频附件
   const handleUpdateTaskStatus = useCallback(async ({ 
@@ -878,37 +988,100 @@ export default function AIGenerate() {
       setLoading(false);
       setProgress(0);
     }
-  }, []);
+  }, [userApiKey]);
 
   useEffect(() => {
-    Promise.all([
-      bitable.base.getTableMetaList(),
-      bitable.base.getSelection(),
-      bitable.bridge.getUserId(),
-    ]).then(([metaList, selection, userId]) => {
-      setTableMetaList(metaList);
-      const defaultTable = metaList.find(meta => meta.name === 'AI素材生成');
-      const initialTableId = defaultTable?.id || selection.tableId;
-      if (initialTableId) {
-        formApi.current?.setValues({ table: initialTableId });
-      }
-      // 根据飞书用户初始化密钥和积分
-      if (userId) {
-        fetch('/api/initUser', {
+    setKeyLoading(true);
+
+    // 从云端同步积分（每次加载都同步）
+    const syncCredits = async (apiKey: string) => {
+      try {
+        const res = await fetch('/api/checkCredits', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId }),
-        })
-          .then(r => r.json())
-          .then(res => {
-            if (res.code === 0) {
-              setUserApiKey(res.data.api_key);
-              setCredits(res.data.credits);
-            }
-          })
-          .catch(err => console.error('initUser 失败:', err));
+          body: JSON.stringify({ api_key: apiKey, cost: 0 }),
+        }).then(r => r.json());
+
+        if (res.code === 0) {
+          setCredits(res.data.credits);
+          localStorage.setItem('user_credits', res.data.credits.toString());
+        }
+      } catch (err) {
+        console.error('同步积分失败:', err);
       }
-    });
+    };
+
+    // 使用飞书身份初始化用户密钥：tenantKey + baseUserId
+    const initUserInfo = async () => {
+      try {
+        let resolvedApiKey = '';
+
+        if (typeof bitable !== 'undefined' && bitable?.base?.getTableMetaList) {
+          const bridgeAny: any = bitable.bridge as any;
+          const baseUserIdPromise =
+            typeof bridgeAny?.getBaseUserId === 'function'
+              ? bridgeAny.getBaseUserId().catch(() => '')
+              : bitable.bridge.getUserId().catch(() => '');
+          const tenantKeyPromise =
+            typeof bridgeAny?.getTenantKey === 'function'
+              ? bridgeAny.getTenantKey().catch(() => '')
+              : Promise.resolve('');
+
+          const [metaList, selection, baseUserId, tenantKey] = await Promise.all([
+            bitable.base.getTableMetaList(),
+            bitable.base.getSelection(),
+            baseUserIdPromise,
+            tenantKeyPromise,
+          ]);
+
+          setTableMetaList(metaList);
+          const defaultTable = metaList.find((meta: ITableMeta) => meta.name === 'AI素材生成');
+          const initialTableId = defaultTable?.id || selection.tableId;
+          if (initialTableId) {
+            formApi.current?.setValues({ table: initialTableId });
+          }
+
+          const res = await fetch('/api/initUser', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              base_user_id: baseUserId || undefined,
+              tenant_key: tenantKey || undefined,
+            }),
+          }).then(r => r.json());
+
+          if (res.code === 0 && res.data?.api_key) {
+            resolvedApiKey = String(res.data.api_key);
+            const userCredits = Number(res.data.credits ?? 0);
+            setUserApiKey(resolvedApiKey);
+            setCredits(userCredits);
+            localStorage.setItem('user_api_key', resolvedApiKey);
+            localStorage.setItem('user_credits', userCredits.toString());
+            await syncCredits(resolvedApiKey);
+            return;
+          }
+        }
+        // 飞书环境不可用时，回退到已缓存密钥（避免阻塞）
+        const cachedKey = (localStorage.getItem('user_api_key') || '').trim();
+        const cachedCredits = localStorage.getItem('user_credits');
+        if (cachedKey) {
+          resolvedApiKey = cachedKey;
+          setUserApiKey(cachedKey);
+          setCredits(cachedCredits ? parseFloat(cachedCredits) : null);
+          await syncCredits(cachedKey);
+          return;
+        }
+
+        setCredits(null);
+        Toast.warning('未获取到飞书用户身份，请在飞书插件环境中打开');
+      } catch (err) {
+        console.log('初始化用户信息失败', err);
+      } finally {
+        setKeyLoading(false);
+      }
+    };
+
+    initUserInfo();
   }, []);
 
   // 样式常量 - 遵循 Base 开放设计规范
@@ -955,44 +1128,96 @@ export default function AIGenerate() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
               <Text strong size="small">密钥</Text>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {credits !== null && (
-                  <Text size="small" type="tertiary">积分：<Text strong style={{ color: credits < 10 ? 'var(--semi-color-danger)' : 'var(--semi-color-success)' }}>{credits}</Text></Text>
-                )}
-                <Button size="small" theme="borderless" style={{ padding: '0 6px', color: 'var(--semi-color-primary)' }} onClick={() => setShowRecharge(true)}>充值</Button>
+                <Text size="small" type="tertiary">积分：<Text strong style={{ color: (credits ?? 0) < 10 ? 'var(--semi-color-danger)' : 'var(--semi-color-success)' }}>{credits ?? 0}</Text></Text>
+                <Button
+                  size="small"
+                  theme="borderless"
+                  icon={<IconRefresh />}
+                  style={{ padding: '0 4px', color: 'var(--semi-color-primary)' }}
+                  onClick={async () => {
+                    if (!userApiKey) return;
+                    try {
+                      const res = await fetch('/api/checkCredits', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ api_key: userApiKey, cost: 0 }),
+                      }).then(r => r.json());
+                      if (res.code === 0) {
+                        setCredits(res.data.credits);
+                        localStorage.setItem('user_credits', res.data.credits.toString());
+                        Toast.success('积分已刷新');
+                      }
+                    } catch (err) {
+                      Toast.error('刷新失败');
+                    }
+                  }}
+                />
+                <Button size="small" theme="borderless" style={{ padding: '0 6px', color: 'var(--semi-color-primary)' }} onClick={() => openRechargeModal(false)}>充值</Button>
               </div>
             </div>
-            <input
-              type="text"
-              placeholder="正在加载密钥..."
-              value={userApiKey}
-              onChange={(e) => setUserApiKey(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                borderRadius: 6,
-                border: '1px solid var(--semi-color-border)',
-                background: 'var(--semi-color-bg-2)',
-                color: 'var(--semi-color-text-0)',
-                fontSize: 14,
-                boxSizing: 'border-box',
-                outline: 'none',
-              }}
-            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                placeholder={keyLoading ? '正在加载密钥...' : '请输入密钥'}
+                value={userApiKey}
+                disabled={keyLoading}
+                readOnly
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  border: '1px solid var(--semi-color-border)',
+                  background: 'var(--semi-color-bg-2)',
+                  color: 'var(--semi-color-text-0)',
+                  fontSize: 14,
+                  boxSizing: 'border-box',
+                  outline: 'none',
+                  opacity: keyLoading ? 0.6 : 1,
+                }}
+              />
+              <Button
+                icon={<IconCopy />}
+                theme="borderless"
+                style={{ padding: '0 8px', color: 'var(--semi-color-primary)' }}
+                onClick={() => {
+                  if (userApiKey) {
+                    navigator.clipboard.writeText(userApiKey);
+                    Toast.success('密钥已复制');
+                  }
+                }}
+                disabled={!userApiKey}
+              />
+            </div>
           </div>
 
-          {/* 充值弹窗 */}
+          {/* 充值弹窗（积分不足时自动打开，强提示） */}
           <Modal
-            title="扫码充值积分"
+            title={rechargeUrgent ? '积分不足 · 请扫码加微信充值' : '扫码充值积分'}
             visible={showRecharge}
-            onCancel={() => setShowRecharge(false)}
+            onCancel={() => {
+              setShowRecharge(false);
+              setRechargeUrgent(false);
+            }}
             footer={null}
             centered
-            width={280}
+            width={320}
           >
-            <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
-              <img src="/wx.jpg" alt="微信二维码" style={{ width: 200, height: 200, borderRadius: 8 }} />
-              <Text type="tertiary" size="small" style={{ display: 'block', marginTop: 12 }}>微信扫码，备注「充值积分」</Text>
-              <Text strong style={{ display: 'block', marginTop: 4 }}>GOV156</Text>
+            <div style={{ padding: '0 0 8px' }}>
+              {rechargeUrgent && (
+                <Banner
+                  type="danger"
+                  fullMode
+                  style={{ marginBottom: 16 }}
+                  title="当前积分不足以完成本次生成"
+                  description="请扫描下方二维码添加微信，转账或联系客服充值，备注「充值积分」。充值完成后可点击「刷新」同步积分。"
+                />
+              )}
+              <div style={{ textAlign: 'center' }}>
+                <img src="/wx.jpg" alt="微信二维码" style={{ width: 200, height: 200, borderRadius: 8 }} />
+                <Text strong style={{ display: 'block', marginTop: 14, fontSize: 15 }}>扫码加微信 · 充值积分</Text>
+                <Text type="tertiary" size="small" style={{ display: 'block', marginTop: 8 }}>备注「充值积分」，微信号</Text>
+                <Text strong style={{ display: 'block', marginTop: 4, fontSize: 16, color: 'var(--semi-color-primary)' }}>GOV156</Text>
+              </div>
             </div>
           </Modal>
 
